@@ -53,14 +53,22 @@ describe('PTY owner colour replies after the asker exits', () => {
     expect(visible()).toBe(`${PROMPT}${COMMAND_START}${PROMPT}`)
   })
 
-  it('drops the reply when the command finished in the same read, even without a foreground group', () => {
-    // ConPTY has no foreground group; the finish marker alone proves the asker gone.
+  it('without a foreground group (ConPTY), drops on the finish marker and answers a live asker after the wait', () => {
+    vi.useFakeTimers()
     const { ingress, writes, setGroup, runCommand } = createHarness()
     runCommand()
     setGroup(null)
     ingress.accept(`${QUERY}${PROMPT}`)
-
+    ingress.accept(COMMAND_START)
+    ingress.accept(QUERY)
+    ingress.accept(PROMPT)
+    vi.runAllTimers()
     expect(writes).toEqual([])
+
+    ingress.accept(COMMAND_START)
+    ingress.accept(QUERY)
+    vi.advanceTimersByTime(20)
+    expect(writes).toEqual([REPLY])
   })
 
   it('drops the reply when the next command of the line has taken the terminal', () => {
@@ -189,17 +197,14 @@ describe('PTY owner colour replies after the asker exits', () => {
     }
   })
 
-  it('answers at once at the prompt, at an Oh My Posh prompt, and with no foreground group', () => {
-    const { ingress, writes, setGroup, runCommand } = createHarness()
+  it('answers at once at the prompt and at an Oh My Posh prompt', () => {
+    const { ingress, writes } = createHarness()
     ingress.accept(QUERY)
     ingress.accept(PROMPT)
     ingress.accept(QUERY)
     // OMP closes its own prompt zone with adjacent B C D;0 (#10923); no command is running.
     ingress.accept(`\x1b]133;B\x07\x1b]133;C\x07\x1b]133;D;0\x07${QUERY}`)
-    runCommand()
-    setGroup(null)
-    ingress.accept(QUERY)
 
-    expect(writes).toEqual([REPLY, REPLY, REPLY, REPLY])
+    expect(writes).toEqual([REPLY, REPLY, REPLY])
   })
 })

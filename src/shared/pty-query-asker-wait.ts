@@ -51,7 +51,7 @@ export class PtyQueryAskerWait {
   }
 
   /** `from`: the query (`queryLength` chars) and the rest of its read; `group` holds the terminal now. */
-  hold(from: PtyIngressSourceSpan, group: number, queryLength: number): void {
+  hold(from: PtyIngressSourceSpan, group: number | null, queryLength: number): void {
     this.query.hold(from)
     this.presence.hold(from.data.slice(queryLength), group)
   }
