@@ -91,6 +91,9 @@ export function buildManagedWorktreeCreateArgs(
       defaultTarget: 'host'
     }),
     setupDecision: params.setupDecision,
+    ...(params.approvedSetupHash !== undefined
+      ? { approvedSetupHash: params.approvedSetupHash }
+      : {}),
     ...(params.setupOnly !== undefined ? { setupOnly: params.setupOnly } : {}),
     createdWithAgent: params.createdWithAgent ?? params.startupAgent,
     ...provenance,
