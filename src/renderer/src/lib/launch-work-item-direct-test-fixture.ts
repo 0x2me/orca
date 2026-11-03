@@ -83,7 +83,8 @@ vi.mock('@/lib/worktree-activation', () => ({
 }))
 
 vi.mock('@/lib/ensure-hooks-confirmed', () => ({
-  ensureHooksConfirmed: vi.fn().mockResolvedValue('run')
+  ensureHooksConfirmed: vi.fn().mockResolvedValue('run'),
+  ensureHooksApproved: vi.fn().mockResolvedValue({ decision: 'run' })
 }))
 
 vi.mock('@/lib/connection-context', () => ({

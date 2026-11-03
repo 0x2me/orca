@@ -63,7 +63,10 @@ vi.mock('@/lib/launch-work-item-direct-preflight', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   resolveDirectSetupDecision: async () => ({ kind: 'decided', decision: 'inherit' })
 }))
-vi.mock('@/lib/ensure-hooks-confirmed', () => ({ ensureHooksConfirmed: async () => 'run' }))
+vi.mock('@/lib/ensure-hooks-confirmed', () => ({
+  ensureHooksConfirmed: async () => 'run',
+  ensureHooksApproved: async () => ({ decision: 'run' })
+}))
 vi.mock('@/lib/windows-terminal-capabilities', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   hasCachedWindowsTerminalCapabilities: () => true,
