@@ -263,6 +263,7 @@ export const AutomationCreate = z.object({
   workspaceMode: AutomationWorkspaceMode,
   baseBranch: OptionalPlainString,
   setupDecision: SetupDecision,
+  setupTrustHash: z.string().max(128).optional(),
   reuseSession: OptionalBoolean,
   timezone: OptionalString,
   rrule: AutomationSchedule,
@@ -287,6 +288,7 @@ export const AutomationUpdateFields = z.object({
   // Why: update patches distinguish omitted from null so callers can clear a saved base branch.
   baseBranch: OptionalNullablePlainString,
   setupDecision: SetupDecision,
+  setupTrustHash: z.string().max(128).optional(),
   reuseSession: OptionalBoolean,
   timezone: OptionalString,
   rrule: AutomationSchedule.optional(),
