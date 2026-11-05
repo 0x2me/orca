@@ -11,6 +11,7 @@ import type { AgentProviderSessionMetadata } from '../../shared/agent-session/li
 import type { ProgramStatusFacet } from '../../shared/program-status/facet'
 import type { RuntimeTerminalAgentStatus } from '../../shared/runtime-types'
 import { mapExplicitAgentStateToRuntimeTerminalStatus } from './runtime-worktree-status-projection'
+import { mainAgentState } from '../../shared/agent-status/lifecycle/main-agent-status'
 
 /** One hook-server row projected into the shape the runtime's own readers consume. */
 export type RuntimeAgentRowSnapshot = {
@@ -79,19 +80,26 @@ export function selectFreshExplicitAgentStatus(args: {
   status: NonNullable<RuntimeTerminalAgentStatus['status']>
   updatedAt: number
   stateStartedAt: number
+  /** When the main agent's own turn began; null while it rests, even if child work keeps the row working. */
+  mainAgentWorkingStartedAt: number | null
 } | null {
   const row = selectFreshExplicitAgentStatusRow({
     handles: [args.handle],
     paneKeys: args.paneKey ? [args.paneKey] : [],
     hookRows: args.hookRows
   })
-  return row
-    ? {
-        status: mapExplicitAgentStateToRuntimeTerminalStatus(row.state),
-        updatedAt: row.receivedAt,
-        stateStartedAt: typeof row.stateStartedAt === 'number' ? row.stateStartedAt : row.receivedAt
-      }
-    : null
+  if (!row) {
+    return null
+  }
+  const stateStartedAt =
+    typeof row.stateStartedAt === 'number' ? row.stateStartedAt : row.receivedAt
+  return {
+    status: mapExplicitAgentStateToRuntimeTerminalStatus(row.state),
+    updatedAt: row.receivedAt,
+    stateStartedAt,
+    mainAgentWorkingStartedAt:
+      mainAgentState(row) === 'working' ? (row.mainAgent?.stateStartedAt ?? stateStartedAt) : null
+  }
 }
 
 /** Prefer the pane's own key, then its terminal binding when the pane key has moved. */

@@ -237,11 +237,7 @@ export abstract class OrcaRuntimeWithSerializeAgentPromptSubmission extends Orca
   protected getFreshExplicitAgentStatusForHandle(
     handle: string,
     paneKeyOverride?: string | null
-  ): {
-    status: NonNullable<RuntimeTerminalAgentStatus['status']>
-    updatedAt: number
-    stateStartedAt: number
-  } | null {
+  ): ReturnType<typeof selectFreshExplicitAgentStatus> {
     return selectFreshExplicitAgentStatus({
       handle,
       paneKey: paneKeyOverride ?? this.getPaneKeyForTerminalHandle(handle),
@@ -294,7 +290,9 @@ export abstract class OrcaRuntimeWithSerializeAgentPromptSubmission extends Orca
       generation: this.getPtyLifecycleGeneration(ptyId),
       permissionSequence: this.agentPromptPermissionSequenceByPtyId.get(ptyId) ?? 0,
       workingSequence: nativeLifecycle?.workingSequence ?? 0,
-      explicitWorkingStartedAt: explicit?.status === 'working' ? explicit.stateStartedAt : null,
+      // A prompt starts the main agent's turn; child work can hold the row working across it.
+      explicitWorkingStartedAt:
+        explicit?.status === 'working' ? explicit.mainAgentWorkingStartedAt : null,
       outputSequence,
       status
     }
