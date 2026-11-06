@@ -9,11 +9,11 @@ import type { NativeChatComposerFocusIntent } from '@/components/native-chat/use
 import type {
   AgentSessionLaunchPlan,
   AgentSessionLaunchTarget
-} from '@/lib/agent-session-launch-plan'
+} from './launch/routing/agent-session-launch-plan'
 import type {
   StructuredAgentLaunchHandle,
   StructuredAgentLaunchHooks
-} from '@/lib/structured-agent-launch-settlement'
+} from './launch/continuation/structured-agent-launch-settlement'
 import { useAppStore } from '@/store/index'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
 import {
@@ -33,7 +33,7 @@ import {
   opensAtAction
 } from './launch/structured-agent-session-action-launch'
 import { holdEmptyWorkspaceDefaultSurfaceForLaunch } from '../empty-workspace-default-surface-claims'
-import type { OpenedAgentSessionTab } from '../structured-agent-session-tab-open-through-layout-owner'
+import type { OpenedAgentSessionTab } from './launch/pane/structured-agent-session-tab-open-through-layout-owner'
 import {
   captureStructuredLaunchSurfaceAddress,
   openStructuredAgentSessionProvisionalTab

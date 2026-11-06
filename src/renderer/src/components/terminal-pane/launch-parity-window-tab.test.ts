@@ -53,7 +53,9 @@ vi.mock('@/lib/agent-status', async (importOriginal) => {
 })
 vi.mock('./cache-timer-seeding', () => ({ shouldSeedCacheTimerOnInitialTitle: () => false }))
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), message: vi.fn(), error: vi.fn() } }))
-vi.mock('@/lib/codex-stale-pane-sweep', () => ({ notifyCodexPaneBoundForStaleSweep: vi.fn() }))
+vi.mock('@/lib/agent-session/accounts/codex/codex-stale-pane-sweep', () => ({
+  notifyCodexPaneBoundForStaleSweep: vi.fn()
+}))
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof React>()
   return { ...actual, useCallback: <T>(fn: T): T => fn }
@@ -76,10 +78,10 @@ vi.mock('@/lib/windows-terminal-capabilities', async (importOriginal) => ({
 }))
 
 const load = perClientLoader(async () => ({
-  launch: await import('@/lib/launch-agent-in-new-tab'),
+  launch: await import('@/lib/agent-session/launch/new-tab/launch-agent-in-new-tab'),
   quick: await import('@/lib/run-quick-command-in-new-tab'),
   vault: await import('@/lib/launch-ai-vault-session'),
-  resume: await import('@/lib/ai-vault-resume-command'),
+  resume: await import('@/lib/agent-session/resume/history/ai-vault-resume-command'),
   pane: await import('./pty-connection'),
   paneOptions: await import('./terminal-pane-manager-options'),
   defaults: await import('@/lib/pane-manager/pane-terminal-options'),
