@@ -1,21 +1,15 @@
 import { STRUCTURED_AGENT_SESSION_ACCOUNT_USAGE_METHODS } from './structured-agent-session-account-usage'
 import { STRUCTURED_AGENT_SESSION_USAGE_LIMIT_CONTINUE_METHODS } from './structured-agent-session-usage-limit-continue'
 import { STRUCTURED_AGENT_SESSION_CLOSE_METHOD } from './structured-agent-session-close-method'
-import { clientRequestsCommands } from './structured-agent-session-policy'
+import { STRUCTURED_AGENT_SESSION_SUBSCRIBE_METHOD } from './structured-agent-session-subscribe-method'
 import {
   clientReadsCurrentRequests,
   STRUCTURED_AGENT_SESSION_CURRENT_REQUESTS_METHODS
 } from './structured-agent-session-current-requests'
 import { clientSupportsSnapshotCatchUp } from './structured-agent-session-history-capability'
-import {
-  projectBackgroundTaskEvent,
-  projectBackgroundTaskHistory
-} from './structured-agent-session-background-task-capability'
-import {
-  projectTurnItemEvent,
-  projectTurnItemHistory
-} from './structured-agent-session-turn-item-capability'
-import { defineMethod, defineStreamingMethod } from '../core'
+import { projectBackgroundTaskHistory } from './structured-agent-session-background-task-capability'
+import { projectTurnItemHistory } from './structured-agent-session-turn-item-capability'
+import { defineMethod } from '../core'
 import {
   ensureStructuredHostInstalled as ensureHostInstalled,
   requireInstalledStructuredHost as requireInstalledHost,
@@ -36,14 +30,8 @@ import { STRUCTURED_AGENT_SESSION_REGENERATE_NAME_METHODS } from './structured-a
 import { STRUCTURED_AGENT_SESSION_RENAME_METHODS } from './structured-agent-session-rename'
 import { STRUCTURED_AGENT_SESSION_QUEUED_METHODS } from './structured-agent-session-queued-methods'
 import { STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS } from './structured-agent-session-restart-resume'
-import {
-  bindStructuredAgentSessionStream,
-  STRUCTURED_AGENT_SESSION_STATUS_METHODS
-} from './structured-agent-session-status-stream'
-import {
-  structuredAgentSessionSubscriptionBase as subscriptionBaseFor,
-  structuredAgentSessionSubscriptionId as subscriptionIdFor
-} from './structured-agent-session-subscription-id'
+import { STRUCTURED_AGENT_SESSION_STATUS_METHODS } from './structured-agent-session-status-stream'
+import { structuredAgentSessionSubscriptionBase as subscriptionBaseFor } from './structured-agent-session-subscription-id'
 import { STRUCTURED_AGENT_SESSION_TURN_COMPLETION_METHODS } from './structured-agent-session-turn-completion-stream'
 import { STRUCTURED_AGENT_SESSION_THREAD_GOAL_METHODS } from './structured-agent-session-thread-goal'
 import { STRUCTURED_AGENT_SESSION_CONVERSATION_OUTLINE_METHODS } from './structured-agent-session-conversation-outline'
@@ -59,21 +47,16 @@ import {
   RewindParams,
   SendParams,
   SleepWorkspaceParams,
-  SubscribeParams,
   UnsubscribeParams
 } from './structured-agent-session-schemas'
 import { sendStructuredAgentSessionForClient } from './structured-agent-session-send-compatibility'
-import { recordMobileViewOpened } from '../../../telemetry/mobile-client-telemetry'
 import { runConversationCommandForClient } from './structured-agent-session-conversation-command'
 import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
 import { refusingStructuredAgentSessionCreatesClosedFirst } from './structured-agent-session-close-before-create'
 import * as queuedImages from './structured-agent-session-queued-image-capability'
-import {
-  projectReceiptDeviceEvent,
-  projectReceiptDeviceHistory
-} from './structured-agent-session-receipt-devices'
+import { projectReceiptDeviceHistory } from './structured-agent-session-receipt-devices'
 
 export const STRUCTURED_AGENT_SESSION_METHODS = [
   defineMethod({
@@ -223,55 +206,7 @@ export const STRUCTURED_AGENT_SESSION_METHODS = [
       )
     }
   }),
-  defineStreamingMethod({
-    name: 'agentSession.subscribe',
-    permission: 'workspace',
-    params: SubscribeParams,
-    handler: async (params, ctx, emit) => {
-      const host = await requireInstalledHost(ctx, params.sessionId)
-      const subscriptionId = subscriptionIdFor(ctx, params.sessionId)
-      // A stream reads; it never keeps an agent alive or starts one.
-      let dispose = (): void => {}
-      const stream = bindStructuredAgentSessionStream(ctx, subscriptionId, () => dispose())
-      if (stream.isClosed()) {
-        return
-      }
-      // Resolve after opening snapshot/missed batch; a racing close disposes the bound stream.
-      dispose = await host.subscribe({
-        commandsOnRequest: clientRequestsCommands(ctx),
-        readsCurrentRequests: clientReadsCurrentRequests(ctx),
-        id: subscriptionId,
-        sessionId: params.sessionId,
-        ...queuedImages.queuedImageSubscriber(ctx),
-        projectQueuePublication: (publication) =>
-          queuedImages.projectQueuedImageCardPublication(publication, ctx),
-        emit: (event) =>
-          emit(
-            projectReceiptDeviceEvent(
-              projectTurnItemEvent(
-                projectBackgroundTaskEvent(event, ctx),
-                ctx,
-                host.sessionAgent(params.sessionId)
-              ),
-              ctx
-            )
-          ),
-        ...(params.cursor ? { cursor: params.cursor } : {}),
-        snapshotCatchUp: clientSupportsSnapshotCatchUp(ctx),
-        // Every phone's app, whatever its version, ends a stream over a frame its bridge cannot carry.
-        ...(ctx.clientKind === 'mobile' ? { boundedFrames: true } : {})
-      })
-      if (stream.isClosed()) {
-        dispose()
-        return
-      }
-      recordMobileViewOpened(ctx, {
-        surface: 'chat',
-        viewKey: `agentSession:${params.sessionId}`,
-        agent: () => host.sessionAgent(params.sessionId)
-      })
-    }
-  }),
+  STRUCTURED_AGENT_SESSION_SUBSCRIBE_METHOD,
   defineMethod({
     name: 'agentSession.unsubscribe',
     permission: 'workspace',
