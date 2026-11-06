@@ -28,7 +28,7 @@ export const runtimeApi = {
       callback(response)
     ipcRenderer.on(channel, listener)
     try {
-      await ipcRenderer.invoke('runtime:subscribe', { subscriptionId, ...args })
+      await ipcRenderer.invoke('runtime:subscribe', { ...args, subscriptionId })
     } catch (error) {
       ipcRenderer.removeListener(channel, listener)
       throw error
