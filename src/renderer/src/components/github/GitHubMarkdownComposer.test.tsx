@@ -638,7 +638,12 @@ it('delivers a dropped image through the app file guard without losing surroundi
   const original = 'Before. After.'
   const draft = new GitHubDraft(original, vi.fn(), 'owner')
   const view = render(
-    <GitHubMarkdownComposer value={original} draft={draft} onChange={draft.change} />
+    <GitHubMarkdownComposer
+      value={original}
+      draft={draft}
+      onChange={draft.change}
+      placeholder="Description"
+    />
   )
   await waitFor(() => expect(view.container.querySelector('.tiptap')).not.toBeNull())
   const element = getComposerEditor(view.container)
@@ -687,6 +692,7 @@ it.each(['unmount', 'reset', 'editor replacement'])(
           <GitHubMarkdownComposer
             key={editorKey}
             value="Original text."
+            placeholder="Description"
             draft={draft}
             onChange={draft.change}
           />
