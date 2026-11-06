@@ -30,6 +30,11 @@ const BUNDLED_MAIN_DEPENDENCIES = new Set([
   'unified',
   'remark-parse',
   'remark-gfm',
+  'micromark',
+  'micromark-util-decode-string',
+  'micromark-util-normalize-identifier',
+  'micromark-extension-gfm',
+  'parse5',
   // Windows NSIS copies app.asar before external resources; bootstrap must not race resources/node_modules.
   'zod'
 ])
