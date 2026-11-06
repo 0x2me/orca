@@ -19,6 +19,7 @@ export type TerminalSubscriptionArgs = {
   emit: TerminalSubscriptionEmit
   ptyId: string
   clientId: string | undefined
+  pairedDeviceId: string | undefined
   isMobile: boolean
   supportsDesktopViewportClaims: boolean
   supportsWriteUnavailable: boolean
