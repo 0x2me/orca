@@ -28,6 +28,9 @@ import {
 import { createStructuredAgentSessionLogger } from '../../native-chat/agent-session-wire/structured-agent-session-logger'
 import { scriptedCodexTransport } from '../orca-runtime-tests/scripted-codex-transport.test-fixture'
 
+// Side reads (at-rest `/` commands) spawn the CLI directly; a missing binary keeps them off a real codex.
+const MISSING_CODEX = '/nonexistent/orca-test-codex'
+
 const CALLER = { callerKey: 'codex-held-sends-test' }
 
 let root: string
@@ -134,7 +137,7 @@ beforeEach(async () => {
     resolveWorkspacePath: async () => root,
     resolveLaunchArgs: () => [],
     resolveClaudeAuthPolicy: () => ({ account: 'managed' }),
-    resolveCodexCommand: () => ({ command: 'codex', prefixArgs: [] }),
+    resolveCodexCommand: () => ({ command: MISSING_CODEX, prefixArgs: [] }),
     resolveEnvironment: async () => ({ PATH: process.env.PATH }),
     ...scriptedCodexTransport(openConnection)
   })

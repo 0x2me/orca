@@ -33,6 +33,9 @@ import {
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
 import { scriptedCodexTransport } from '../orca-runtime-tests/scripted-codex-transport.test-fixture'
+
+// Side reads (at-rest `/` commands) spawn the CLI directly; a missing binary keeps them off a real codex.
+const MISSING_CODEX = '/nonexistent/orca-test-codex'
 // With only the Codex child faked, verify direct settlements follow the streamed frames that prove them, including coalesced writes.
 
 const CALLER = { callerKey: 'codex-settlement-order-test' }
@@ -164,7 +167,7 @@ beforeEach(async () => {
     resolveWorkspacePath: async () => root,
     resolveLaunchArgs: () => [],
     resolveClaudeAuthPolicy: () => ({ account: 'managed' }),
-    resolveCodexCommand: () => ({ command: 'codex', prefixArgs: [] }),
+    resolveCodexCommand: () => ({ command: MISSING_CODEX, prefixArgs: [] }),
     resolveEnvironment: async () => ({ PATH: process.env.PATH }),
     ...scriptedCodexTransport(openConnection)
   })

@@ -32,6 +32,9 @@ import {
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
 import { scriptedCodexTransport } from '../orca-runtime-tests/scripted-codex-transport.test-fixture'
+
+// Side reads (at-rest `/` commands) spawn the CLI directly; a missing binary keeps them off a real codex.
+const MISSING_CODEX = '/nonexistent/orca-test-codex'
 // Drive the real host/journal/adapter with fake Codex: interrupt answers precede turn/completed, so Stop settlement must prevent a transient failed turn.
 
 const CALLER = { callerKey: 'codex-interrupt-order-test' }
@@ -211,7 +214,7 @@ beforeEach(async () => {
     resolveWorkspacePath: async () => root,
     resolveLaunchArgs: () => [],
     resolveClaudeAuthPolicy: () => ({ account: 'managed' }),
-    resolveCodexCommand: () => ({ command: 'codex', prefixArgs: [] }),
+    resolveCodexCommand: () => ({ command: MISSING_CODEX, prefixArgs: [] }),
     resolveEnvironment: async () => ({ PATH: process.env.PATH }),
     ...scriptedCodexTransport(openConnection)
   })

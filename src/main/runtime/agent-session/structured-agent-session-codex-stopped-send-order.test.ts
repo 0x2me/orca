@@ -41,6 +41,9 @@ import { scriptedCodexTransport } from '../orca-runtime-tests/scripted-codex-tra
 
 import type * as CodexTurnOpenWait from '../../codex/structured/turns/codex-structured-turn-open-wait'
 
+// Side reads (at-rest `/` commands) spawn the CLI directly; a missing binary keeps them off a real codex.
+const MISSING_CODEX = '/nonexistent/orca-test-codex'
+
 const openWaits = vi.hoisted(() => {
   const state: {
     turnIds: string[]
@@ -228,7 +231,7 @@ async function startHost(): Promise<void> {
     resolveWorkspacePath: async () => root,
     resolveLaunchArgs: () => [],
     resolveClaudeAuthPolicy: () => ({ account: 'managed' }),
-    resolveCodexCommand: () => ({ command: 'codex', prefixArgs: [] }),
+    resolveCodexCommand: () => ({ command: MISSING_CODEX, prefixArgs: [] }),
     resolveEnvironment: async () => ({ PATH: process.env.PATH }),
     ...scriptedCodexTransport(openConnection)
   })
