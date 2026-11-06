@@ -66,12 +66,33 @@ export type MuseSessionLogState = {
   sessionId: string
   cursor: JsonlCursor
   pending: Map<string, MusePendingUserInput>
+  /** Background workflow run task ids: true while running, false once the log settles them. */
+  workflowRuns: Map<string, boolean>
+  /** The newest main-agent run the log started and has not yet ended. */
+  activeRunId?: string
+}
+
+export type MuseBackgroundWork = {
+  runningWorkflows: number
+  /** Muse woke the main agent for a run other than the one whose end is being reported. */
+  newerRunActive: boolean
 }
 
 const USER_INPUT_PROMPT_MARKER = '"user_input_prompt_'
+const WORKFLOW_RUN_TASK_KIND = 'workflow.run.native'
+const SETTLED_TASK_KINDS = ['completed', 'failed', 'cancelled', 'rejected', 'aborted']
+// Small run/task lifecycle records; a settlement can share a read with its launch, so it cannot wait for the id.
+const BACKGROUND_WORK_MARKERS = ['started', 'terminal', ...SETTLED_TASK_KINDS].map(
+  (kind) => `"event":{"kind":"${kind}"`
+)
 
 export function createMuseSessionLogState(sessionId: string): MuseSessionLogState {
-  return { sessionId, cursor: { offset: 0, carry: '' }, pending: new Map() }
+  return {
+    sessionId,
+    cursor: { offset: 0, carry: '' },
+    pending: new Map(),
+    workflowRuns: new Map()
+  }
 }
 
 /** Muse batches some records into a `retained_frame` whose `children[].record_json` hold them as strings. */
@@ -118,20 +139,98 @@ function applyUserInputRecord(log: MuseSessionLogState, entry: JsonRecord): void
   }
 }
 
+function applyBackgroundWorkRecord(log: MuseSessionLogState, entry: JsonRecord): void {
+  const payload = record(entry.payload)
+  const event = record(payload?.event)
+  if (payload?.kind === 'run' && typeof payload.run_id === 'string') {
+    if (event?.kind === 'started') {
+      log.activeRunId = payload.run_id
+    } else if (event?.kind === 'terminal' && log.activeRunId === payload.run_id) {
+      log.activeRunId = undefined
+    }
+    return
+  }
+  const taskId = typeof payload?.task_id === 'string' ? payload.task_id : undefined
+  if (!taskId || typeof event?.kind !== 'string') {
+    return
+  }
+  if (event.kind === 'proposed' && event.task_kind === WORKFLOW_RUN_TASK_KIND) {
+    if (!log.workflowRuns.has(taskId)) {
+      log.workflowRuns.set(taskId, true)
+    }
+  } else if (log.workflowRuns.get(taskId) === true && SETTLED_TASK_KINDS.includes(event.kind)) {
+    log.workflowRuns.set(taskId, false)
+  }
+}
+
+function readsLine(line: string): boolean {
+  return (
+    line.includes(USER_INPUT_PROMPT_MARKER) ||
+    line.includes(WORKFLOW_RUN_TASK_KIND) ||
+    BACKGROUND_WORK_MARKERS.some((marker) => line.includes(marker))
+  )
+}
+
+/** Returns false while the log file cannot be found. */
+function advanceMuseSessionLog(log: MuseSessionLogState, sessionsDir?: string): boolean {
+  log.cursor.filePath ??= findMuseSessionLogPath(log.sessionId, sessionsDir)
+  // Why: most log lines are large model/tool records; parse only the event kinds we read.
+  const lines = readJsonlCursor(log.cursor, readsLine)
+  for (const line of lines ?? []) {
+    for (const entry of unwrapMuseLogRecords(line)) {
+      applyUserInputRecord(log, entry)
+      applyBackgroundWorkRecord(log, entry)
+    }
+  }
+  return log.cursor.filePath !== undefined
+}
+
+/** Records the run a `workflow` tool result launched, before the log may have flushed it. */
+export function recordMuseWorkflowLaunch(log: MuseSessionLogState, toolResponse: unknown): void {
+  let response: unknown = toolResponse
+  if (typeof toolResponse === 'string') {
+    try {
+      response = JSON.parse(toolResponse)
+    } catch {
+      return
+    }
+  }
+  const result = record(response)
+  if (result?.status === 'launched' && typeof result.taskId === 'string') {
+    if (!log.workflowRuns.has(result.taskId)) {
+      log.workflowRuns.set(result.taskId, true)
+    }
+  }
+}
+
+/** Advances the log and reports the background work still running after `turnId`'s run ended. */
+export function readMuseBackgroundWork(
+  log: MuseSessionLogState,
+  turnId: string | undefined,
+  sessionsDir?: string
+): MuseBackgroundWork {
+  // Why: settlement exists only in the log, so work it cannot see must not hold the pane open.
+  if (!advanceMuseSessionLog(log, sessionsDir)) {
+    return { runningWorkflows: 0, newerRunActive: false }
+  }
+  let runningWorkflows = 0
+  for (const running of log.workflowRuns.values()) {
+    runningWorkflows += running ? 1 : 0
+  }
+  return {
+    runningWorkflows,
+    newerRunActive:
+      log.activeRunId !== undefined && turnId !== undefined && log.activeRunId !== turnId
+  }
+}
+
 /** Advances the log and returns the newest unanswered `request_user_input` prompt of `turnId`'s run. */
 export function readMusePendingUserInput(
   log: MuseSessionLogState,
   turnId: string | undefined,
   sessionsDir?: string
 ): MusePendingUserInput | undefined {
-  log.cursor.filePath ??= findMuseSessionLogPath(log.sessionId, sessionsDir)
-  // Why: most log lines are large model/tool records; parse only the two event kinds we read.
-  const lines = readJsonlCursor(log.cursor, (line) => line.includes(USER_INPUT_PROMPT_MARKER))
-  for (const line of lines ?? []) {
-    for (const entry of unwrapMuseLogRecords(line)) {
-      applyUserInputRecord(log, entry)
-    }
-  }
+  advanceMuseSessionLog(log, sessionsDir)
   // Why: a question left open by a crash or interrupt stays in the log; only the live turn's can block.
   const pending = Array.from(log.pending.values())
   return pending.findLast((prompt) => !turnId || !prompt.runId || prompt.runId === turnId)

@@ -141,6 +141,48 @@ describe('Muse hook events', () => {
     expect(state.lastStatusByPaneKey.get(PANE_KEY)?.payload.state).toBe('done')
   })
 
+  // Muse 1.4.14 subagent_spawn trace: the child starts before the lead's Stop and ends long after it.
+  it('keeps the pane working while a spawned background subagent outlives the lead turn', () => {
+    const spawned = { ...envelope, session_id: CHILD_ID, turn_id: CHILD_ID }
+    normalizeAndAccept(state, 'muse', {
+      ...main,
+      hook_event_name: 'UserPromptSubmit',
+      prompt: 'go'
+    })
+    normalizeAndAccept(state, 'muse', {
+      ...spawned,
+      hook_event_name: 'SubagentStart',
+      subagent_id: '01a1afae-e716-7a93-8ecf-67cb69c7e7aa',
+      child_session_id: CHILD_ID
+    })
+    const stopped = normalizeAndAccept(state, 'muse', {
+      ...main,
+      hook_event_name: 'Stop',
+      stop_hook_active: false,
+      last_assistant_message: 'SPAWNED'
+    })
+    expect(stopped?.payload).toMatchObject({ state: 'working', mainAgent: { state: 'done' } })
+
+    expect(
+      normalizeAndAccept(state, 'muse', {
+        ...spawned,
+        hook_event_name: 'SubagentStop',
+        subagent_id: '01a1afae-e716-7a93-8ecf-67cb69c7e7aa',
+        child_session_id: CHILD_ID
+      })
+    ).toBeNull()
+    // Muse wakes the lead with the result; that run's Stop ends the pane's work.
+    const woken = normalizeAndAccept(state, 'muse', {
+      ...main,
+      turn_id: '01a1afaf-9d8f-7262-8cb8-965ef6f773f3',
+      hook_event_name: 'Stop',
+      stop_hook_active: false,
+      last_assistant_message: 'Subagent finished.'
+    })
+    expect(woken?.payload.state).toBe('done')
+    expect(woken?.payload.mainAgent).toBeUndefined()
+  })
+
   it('reports a request_user_input question from the session log until it settles', () => {
     const logPath = sessionLogPath()
     const body = { ...main, hook_event_name: 'UserPromptSubmit', prompt: 'ask my favorite color' }

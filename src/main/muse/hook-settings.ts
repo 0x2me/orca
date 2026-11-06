@@ -15,10 +15,11 @@ import { parseMuseSettingsText } from './hook-config-json'
 
 const MUSE_SCRIPT_BASE = 'muse-hook'
 
-// Muse 1.3 uses Claude-shaped events; SubagentStart must not update parent-pane status.
+// Muse 1.3 uses Claude-shaped events; subagent events track background children, never the parent's own status.
 export const MUSE_HOOK_EVENTS = [
   'SessionStart',
   'SubagentStart',
+  'SubagentStop',
   'SessionEnd',
   'Notification',
   'UserPromptSubmit',

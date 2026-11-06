@@ -102,6 +102,12 @@ export type HermesPaneTurn = {
 export type MusePaneState = {
   /** Internal reminder/subagent sessions; their hooks inherit the pane env and fire even after Stop. */
   childSessionIds: Set<string>
+  /** Spawned and workflow subagents between their SubagentStart and SubagentStop; they outlive the lead's turn. */
+  runningChildSessionIds: Set<string>
+  /** Main-agent status as last derived, so restatements keep its clock. */
+  mainAgent?: AgentMainAgentStatus
+  /** The last published row was a finished turn held open by background work. */
+  heldOpen?: boolean
   log?: MuseSessionLogState
   /** Muse emits PermissionRequest for auto-approved calls too; only Notification confirms a visible prompt. */
   pendingApproval?: { toolName?: string; toolInput?: unknown }
