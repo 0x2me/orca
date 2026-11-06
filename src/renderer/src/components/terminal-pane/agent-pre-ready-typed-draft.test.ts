@@ -32,11 +32,13 @@ const {
   toastInfo,
   waitForAgentDraftInputReady,
   sendAgentDraftPasteContent,
-  onPasteTimeout
+  onPasteTimeout,
+  pasteTimeoutNotice
 } = vi.hoisted(() => ({
   waitForAgentDraftInputReady: vi.fn(),
   sendAgentDraftPasteContent: vi.fn(async () => true),
   onPasteTimeout: vi.fn(),
+  pasteTimeoutNotice: vi.fn(),
   notifyCodexPaneBoundForStaleSweep: vi.fn(),
   scheduleRuntimeGraphSync: vi.fn(),
   shouldSeedCacheTimerOnInitialTitle: vi.fn(() => false),
@@ -103,7 +105,10 @@ vi.mock('./remote-runtime-pty-transport', () => ({
 vi.mock('@/lib/agent-draft-paste-content', () => ({ sendAgentDraftPasteContent }))
 
 vi.mock('@/lib/launch-agent-paste-timeout-notice', () => ({
-  createPasteReadinessTimeoutNotice: () => ({ onTimeout: onPasteTimeout, wasNotified: () => false })
+  createPasteReadinessTimeoutNotice: (args: unknown) => {
+    pasteTimeoutNotice(args)
+    return { onTimeout: onPasteTimeout, wasNotified: () => false }
+  }
 }))
 
 vi.mock('@/store', () => ({
@@ -301,6 +306,10 @@ describe('agent pane keys typed before its PTY binds', () => {
 
     expect(sendAgentDraftPasteContent).not.toHaveBeenCalled()
     expect(onPasteTimeout).toHaveBeenCalledOnce()
+    // The typed text exists nowhere else, so the notice must carry it back to the user.
+    expect(pasteTimeoutNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ droppedText: 'hello' })
+    )
     pane.dispose()
   })
 
