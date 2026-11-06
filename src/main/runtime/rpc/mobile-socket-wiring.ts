@@ -245,6 +245,9 @@ export class MobileSocketWiring {
           transport.setClientId(ws, device.deviceId)
           // Do not delay e2ee_authenticated for the secure-file rewrite.
           this.deviceRegistry.updateLastSeenDeferred(device.deviceId)
+          if (device.deviceToken === undefined) {
+            this.deviceRegistry.retireForkedTicket(device.deviceId)
+          }
           this.onReady?.(socket)
         },
         onError: (code, reason) => {
