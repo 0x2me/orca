@@ -238,6 +238,7 @@ describe('OrcaRuntimeRpcServer', () => {
 
   it('shares one socket close listener across concurrent WebSocket dispatches', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this socket fixture implements the explicit handlers and shutdown surface exercised below.
     const runtime = {
       configureNotificationDismissalStore: () => {},
       disposeGitHubAttachments: () => {},

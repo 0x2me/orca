@@ -44,6 +44,7 @@ it(
         }
       ]
     })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this socket fixture implements the explicit handlers and shutdown surface exercised below.
     const runtime = {
       configureNotificationDismissalStore: () => {},
       disposeGitHubAttachments: () => {},

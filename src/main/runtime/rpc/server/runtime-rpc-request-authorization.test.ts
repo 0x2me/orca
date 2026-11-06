@@ -68,6 +68,7 @@ const { getWorktreeListingMocks } = vi.hoisted(() => {
 describe('OrcaRuntimeRpcServer', () => {
   it('rejects WebSocket requests whose request token differs from the authenticated channel token', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this socket fixture implements the explicit handlers and shutdown surface exercised below.
     const runtime = {
       configureNotificationDismissalStore: () => {},
       disposeGitHubAttachments: () => {},
@@ -239,6 +240,7 @@ describe('OrcaRuntimeRpcServer', () => {
   it('rejects unpaired terminal creates before runtime dispatch', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const createMobileSessionTerminal = vi.fn()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this socket fixture implements the explicit handlers and shutdown surface exercised below.
     const runtime = {
       configureNotificationDismissalStore: () => {},
       disposeGitHubAttachments: () => {},
@@ -287,6 +289,7 @@ describe('OrcaRuntimeRpcServer', () => {
   it('allows runtime-scoped WebSocket tokens to use the full RPC surface', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const pushRuntimeGit = vi.fn().mockResolvedValue({ ok: true })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this socket fixture implements the explicit handlers and shutdown surface exercised below.
     const runtime = {
       configureNotificationDismissalStore: () => {},
       disposeGitHubAttachments: () => {},

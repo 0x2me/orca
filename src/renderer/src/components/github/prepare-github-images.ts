@@ -223,7 +223,7 @@ export async function prepareGitHubImages(args: {
           { uploadId },
           AbortSignal.timeout(5_000),
           5_000,
-          args.context.rpcOptions
+          captured.rpcOptions
         ).catch(() => {})
         throw error
       })

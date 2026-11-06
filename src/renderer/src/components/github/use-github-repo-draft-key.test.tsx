@@ -77,6 +77,7 @@ it.each([2, 20])(
         )
       })
     )
+    expect(lookup).toHaveBeenCalled()
     expect(renders).toEqual([1, ...Array<number>(count - 1).fill(0)])
     expect(keys[0]).not.toBe(before[0])
     expect(keys.slice(1)).toEqual(before.slice(1))
