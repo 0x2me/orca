@@ -141,7 +141,7 @@ describe('Store', () => {
   })
 })
 
-describe('Store.migrateTabSwitchKeybindings', () => {
+describe('Store keybinding rollout cohorts', () => {
   // Freeze the cohort from first-load file existence so later launches preserve the decision.
 
   beforeEach(() => {
@@ -156,6 +156,7 @@ describe('Store.migrateTabSwitchKeybindings', () => {
   it('marks a truly fresh install done so it adopts the new defaults', async () => {
     const store = await createStore()
     expect(store.getSettings().tabSwitchKeybindingSeed).toBe('done')
+    expect(store.getSettings().searchKeybindingSeed).toBe('done')
   })
 
   it('marks a pre-existing install pending so the legacy chords get seeded', async () => {
@@ -170,12 +171,14 @@ describe('Store.migrateTabSwitchKeybindings', () => {
     })
     const store = await createStore()
     expect(store.getSettings().tabSwitchKeybindingSeed).toBe('pending')
+    expect(store.getSettings().searchKeybindingSeed).toBe('pending')
     expect(store.getSettings().theme).toBe('dark')
   })
 
   it('retains the existing keybinding cohort when recovering a legacy backup', async () => {
     await withRecoveredLegacyProfile((store) => {
       expect(store.getSettings().tabSwitchKeybindingSeed).toBe('pending')
+      expect(store.getSettings().searchKeybindingSeed).toBe('pending')
     })
   })
 
@@ -184,13 +187,14 @@ describe('Store.migrateTabSwitchKeybindings', () => {
       schemaVersion: 1,
       repos: [],
       worktreeMeta: {},
-      settings: { tabSwitchKeybindingSeed: 'done' },
+      settings: { tabSwitchKeybindingSeed: 'done', searchKeybindingSeed: 'done' },
       ui: {},
       githubCache: { pr: {}, issue: {} },
       workspaceSession: {}
     })
     const store = await createStore()
     expect(store.getSettings().tabSwitchKeybindingSeed).toBe('done')
+    expect(store.getSettings().searchKeybindingSeed).toBe('done')
   })
 })
 
