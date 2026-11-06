@@ -523,3 +523,40 @@ it('fails before uploading when raw HTML replacement ranges are unavailable', as
   expect(attachmentRpc).not.toHaveBeenCalled()
   expect(draft.value).toBe(original)
 })
+
+it('prepares a reference-definition image through its actual rich editor owner', async () => {
+  const original = '![shot][capture]\n\n[capture]: data:image/png;base64,AA=='
+  const draft = new GitHubDraft(original, vi.fn(), 'owner')
+  const view = render(
+    <GitHubMarkdownComposer
+      value={original}
+      draft={draft}
+      onChange={draft.change}
+      placeholder="Description"
+    />
+  )
+  await waitFor(() => expect(view.container.querySelector('.tiptap')).not.toBeNull())
+  await act(async () => {
+    await draft.submit(
+      async (body, signal) => {
+        await prepareGitHubImages({
+          body,
+          signal,
+          context: {
+            runtime: { kind: 'local' },
+            target: { kind: 'slug', owner: 'owner', repo: 'repo', host: 'github.com' }
+          },
+          update: draft.prepared,
+          beforeUpload: draft.prepareImages
+        })
+      },
+      () => {}
+    )
+  })
+  expect(
+    attachmentRpc.mock.calls.filter((call) => call[1] === 'github.uploadAttachment')
+  ).toHaveLength(1)
+  expect(draft.value).toBe(
+    '![shot][capture]\n\n[capture]: https://github.com/user-attachments/assets/a'
+  )
+})
