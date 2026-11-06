@@ -645,9 +645,10 @@ it('delivers a dropped image through the app file guard without losing surroundi
   if (!('editor' in element) || !(element.editor instanceof Editor)) {
     throw new Error('Missing real editor')
   }
-  vi.spyOn(element.editor.view, 'posAtCoords').mockReturnValue({ pos: 9, inside: -1 })
+  const editor = element.editor
+  vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: 9, inside: -1 })
   act(() => {
-    element.editor.commands.setTextSelection({ from: 1, to: 8 })
+    editor.commands.setTextSelection({ from: 1, to: 8 })
   })
   const disposeGuard = installOsFileDropCancellationGuard()
   try {
