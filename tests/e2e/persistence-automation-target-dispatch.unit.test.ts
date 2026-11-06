@@ -92,20 +92,24 @@ describe('persisted automation target dispatch', () => {
       }
       await store.flushPendingOrThrowAsync()
       const reloaded = await createStore()
+      const previousWindow = globalThis.window
+      vi.stubGlobal('window', Object.assign(new EventTarget(), { api: {} }))
       const { useAppStore } = await import('../../src/renderer/src/store')
       const { resolveAutomationDispatchWorkspace, prepareAutomationDispatchWorkspace } =
         await import('../../src/renderer/src/hooks/automation-dispatch-workspace')
       const previous = useAppStore.getState()
-      const previousWindow = globalThis.window
       try {
-        vi.stubGlobal('window', {
-          api: {
-            ssh: {
-              needsPassphrasePrompt: vi.fn(async () => false),
-              getState: vi.fn(async () => ({ status: 'connected' }))
+        vi.stubGlobal(
+          'window',
+          Object.assign(new EventTarget(), {
+            api: {
+              ssh: {
+                needsPassphrasePrompt: vi.fn(async () => false),
+                getState: vi.fn(async () => ({ status: 'connected' }))
+              }
             }
-          }
-        })
+          })
+        )
         for (const [index, hostId] of (['local', 'ssh:box'] as const).entries()) {
           const saved = reloaded.listAutomations().find((row) => row.id === ids[index])!
           const selector = reloaded

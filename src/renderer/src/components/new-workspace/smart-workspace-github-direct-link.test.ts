@@ -11,7 +11,9 @@ const repoSlug = vi.fn(async ({ repoId }: { repoId: string }) => slugs[repoId] ?
 const workItemByOwnerRepo = vi.fn(async () => null)
 
 // @ts-expect-error focused preload mock
-globalThis.window = { api: { gh: { repoSlug, workItemByOwnerRepo } } }
+globalThis.window = Object.assign(new EventTarget(), {
+  api: { gh: { repoSlug, workItemByOwnerRepo } }
+})
 
 function repo(id: string): RepoOption {
   return { id, path: `/repos/${id}`, displayName: id, badgeColor: '#000000', addedAt: 0 }

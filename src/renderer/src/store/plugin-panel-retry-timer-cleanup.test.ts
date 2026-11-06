@@ -37,7 +37,10 @@ async function harness(list: List) {
     changed = callback
     return vi.fn()
   })
-  vi.stubGlobal('window', { api: { plugins: { list, onChanged } } })
+  vi.stubGlobal(
+    'window',
+    Object.assign(new EventTarget(), { api: { plugins: { list, onChanged } } })
+  )
   const { usePluginPanelsStore: store, ensurePluginPanelsLoaded: ensure } =
     await import('./plugin-panels')
   return { store, ensure, onChanged, change: () => changed?.({ contentPacksChanged: false }) }

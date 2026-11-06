@@ -134,14 +134,17 @@ export function createRemoteRuntimeTransportMocks(
         return { unsubscribe: vi.fn(), sendBinary: subscriptionSendBinary }
       }
     )
-    vi.stubGlobal('window', {
-      api: {
-        runtimeEnvironments: {
-          call: runtimeCall,
-          subscribe: runtimeSubscribe
+    vi.stubGlobal(
+      'window',
+      Object.assign(new EventTarget(), {
+        api: {
+          runtimeEnvironments: {
+            call: runtimeCall,
+            subscribe: runtimeSubscribe
+          }
         }
-      }
-    })
+      })
+    )
   }
 
   return {

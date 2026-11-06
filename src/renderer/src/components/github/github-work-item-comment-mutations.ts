@@ -236,5 +236,3 @@ export function notifyWorkItemDetailsMutation(
     })
     .catch(() => undefined)
 }
-
-export { setPRFileViewedForRepo } from './github-work-item-state-mutations'

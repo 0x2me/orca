@@ -6,4 +6,4 @@ const apiProxy = (): unknown =>
   })
 
 // @ts-expect-error -- mocked browser preload API
-globalThis.window = { api: apiProxy() }
+globalThis.window = Object.assign(new EventTarget(), { api: apiProxy() })

@@ -22,7 +22,7 @@ const setViewed = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/github-work-item-source-lookup', () => ({
   lookupGitHubWorkItemDetailsForSource: lookup
 }))
-vi.mock('@/components/github/github-work-item-comment-mutations', async (importOriginal) => ({
+vi.mock('@/components/github/github-work-item-state-mutations', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   setPRFileViewedForRepo: setViewed
 }))

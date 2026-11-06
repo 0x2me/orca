@@ -109,6 +109,6 @@ export function createTabsSliceMockApi(): TabsSliceMockApi {
   }
 
   // @ts-expect-error -- mock
-  globalThis.window = { api: mockApi }
+  globalThis.window = Object.assign(new EventTarget(), { api: mockApi })
   return mockApi
 }

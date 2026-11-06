@@ -61,7 +61,7 @@ vi.mock('@/runtime/runtime-rpc-client', async (importOriginal) => {
 })
 
 // @ts-expect-error -- minimal window.api stub for the store under test
-globalThis.window = { api: {} }
+globalThis.window = Object.assign(new EventTarget(), { api: {} })
 
 const { createTestStore } =
   await import('../../../src/renderer/src/store/slices/store-test-helpers')

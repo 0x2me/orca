@@ -1,7 +1,7 @@
 import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
 import type { GhAccountBinding } from '../../../../../shared/github/account-binding'
 import { toast } from 'sonner'
-import { setPRFileViewedForRepo } from '@/components/github/github-work-item-comment-mutations'
+import { setPRFileViewedForRepo } from '@/components/github/github-work-item-state-mutations'
 import { resolvePullRequestRepo } from '@/components/github/github-work-item-identity'
 import { translate } from '@/i18n/i18n'
 import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'

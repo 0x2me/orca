@@ -152,7 +152,9 @@ export async function restoreTerminalTestGlobals(): Promise<void> {
     delete (globalThis as { document?: Document }).document
   }
   // Late reattach continuations can outlive teardown; keep an inert window like a real renderer until the next test installs its replacement (orca#14728).
-  ;(globalThis as unknown as { window?: unknown }).window = { api: createInertApi() }
+  ;(globalThis as unknown as { window?: unknown }).window = Object.assign(new EventTarget(), {
+    api: createInertApi()
+  })
   delete (globalThis as Record<string, unknown>).__ptyConnectDiag
   resetAgentStartupDelayedDeliveryForTests()
 }
