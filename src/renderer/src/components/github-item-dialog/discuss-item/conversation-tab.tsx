@@ -1,3 +1,4 @@
+import { captureGitHubImageOperation } from '@/components/github/github-image-operation'
 import { useGitHubRepoDraftKey } from '@/components/github/use-github-repo-draft-key'
 import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
 import { useGitHubDraft } from '@/components/github/use-github-draft'
@@ -152,9 +153,12 @@ export function ConversationTab({
       : Boolean(projectOrigin || canUseRepoMutationContext)
   const bodyChanged = resolvedBodyDraft !== body
   const repoDraftKey = useGitHubRepoDraftKey({
-    repoId: repoId ?? item.repoId,
+    action: 'body',
+    item,
     repoPath,
-    sourceContext
+    sourceContext,
+    projectOrigin,
+    parsedSlug: bodySlug
   })
   const bodyController = useGitHubDraft(
     resolvedBodyDraft,
@@ -162,58 +166,65 @@ export function ConversationTab({
     JSON.stringify([item.id, item.repoId, sourceContext, projectOrigin, bodyEditing, repoDraftKey])
   )
 
-  const handleSaveBody = useCallback(
-    async (): Promise<void> =>
-      bodyController.submit(async (currentBody, signal) => {
-        if (bodySaving || currentBody === body) {
-          setBodyEditing(false)
-          return
-        }
-        try {
-          await runWorkItemBodyUpdate({
-            item,
-            repoPath,
-            sourceContext,
-            projectOrigin,
-            body: currentBody,
-            preparation: {
-              signal,
-              beforeUpload: bodyController.prepareImages,
-              update: bodyController.prepared
-            },
-            parsedSlug: bodySlug
-          })
-          onBodyUpdated(bodyController.value)
-          setBodyEditing(false)
-          useAppStore.getState().recordFeatureInteraction('github-tasks')
-          toast.success(
-            translate('auto.components.GitHubItemDialog.5221548274', 'Description updated.')
-          )
-        } catch (err) {
-          toast.error(
-            err instanceof Error
-              ? err.message
-              : translate(
-                  'auto.components.GitHubItemDialog.58c73cb0d8',
-                  'Failed to update description.'
-                )
-          )
-        } finally {
-          setBodySaving(false)
-        }
-      }, setBodySaving),
-    [
-      bodyController,
-      body,
-      bodySaving,
-      bodySlug,
+  const handleSaveBody = useCallback(async (): Promise<void> => {
+    const captured = captureGitHubImageOperation(useAppStore.getState(), {
+      action: 'body',
       item,
-      onBodyUpdated,
-      projectOrigin,
       repoPath,
-      sourceContext
-    ]
-  )
+      sourceContext,
+      projectOrigin,
+      parsedSlug: bodySlug
+    })
+    return bodyController.submit(async (currentBody, signal) => {
+      if (bodySaving || currentBody === body) {
+        setBodyEditing(false)
+        return
+      }
+      try {
+        await runWorkItemBodyUpdate({
+          item,
+          repoPath,
+          sourceContext,
+          projectOrigin,
+          body: currentBody,
+          preparation: {
+            context: captured(),
+            signal,
+            beforeUpload: bodyController.prepareImages,
+            update: bodyController.prepared
+          },
+          parsedSlug: bodySlug
+        })
+        onBodyUpdated(bodyController.value)
+        setBodyEditing(false)
+        useAppStore.getState().recordFeatureInteraction('github-tasks')
+        toast.success(
+          translate('auto.components.GitHubItemDialog.5221548274', 'Description updated.')
+        )
+      } catch (err) {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : translate(
+                'auto.components.GitHubItemDialog.58c73cb0d8',
+                'Failed to update description.'
+              )
+        )
+      } finally {
+        setBodySaving(false)
+      }
+    }, setBodySaving)
+  }, [
+    bodyController,
+    body,
+    bodySaving,
+    bodySlug,
+    item,
+    onBodyUpdated,
+    projectOrigin,
+    repoPath,
+    sourceContext
+  ])
 
   const handleReply = useCallback(
     async (
@@ -293,6 +304,7 @@ export function ConversationTab({
   )
 
   const commentCardProps = {
+    itemType: item.type,
     repoPath,
     repoId: repoId ?? item.repoId,
     sourceContext,

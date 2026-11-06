@@ -1,7 +1,8 @@
+import { useAppStore } from '@/store'
+import { gitHubBodyImageContext } from './github-image-operation'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import { prepareGitHubImages, gitHubImageContext } from './prepare-github-images'
+import { prepareGitHubImages } from './prepare-github-images'
 import type { GitHubDraftPreparation } from './github-work-item-comment-mutations'
-import { getGitHubMutationTarget } from './github-work-item-mutation-target'
 export { getGitHubMutationTarget } from './github-work-item-mutation-target'
 import { callGitHubTargetOperation } from '@/lib/github-work-item-target-request'
 import { gitHubSlugApiForTarget } from '@/runtime/github-slug-owner-api'
@@ -9,7 +10,6 @@ import {
   getGitHubRuntimeRepoId,
   getGitHubSourceRuntimeHost
 } from '@/lib/github-source-runtime-context'
-import { taskSourceRuntimeTarget } from '@/lib/task-source-runtime-target'
 import {
   resolvePullRequestRepo,
   type GitHubWorkItemProjectOrigin
@@ -34,14 +34,14 @@ export async function runIssueUpdate(args: {
 }): Promise<void> {
   const issueRepo = args.projectOrigin
   if (issueRepo) {
-    const target =
-      args.sourceContext?.provider === 'github'
-        ? taskSourceRuntimeTarget(args.sourceContext)
-        : getGitHubMutationTarget(args.repoId, args.projectOrigin)
-    const imageContext = gitHubImageContext({
-      runtime: target,
-      target: { kind: 'slug', ...issueRepo }
-    })
+    const imageContext =
+      args.preparation?.context ??
+      gitHubBodyImageContext(useAppStore.getState(), {
+        ...args,
+        item: { type: 'issue', repoId: args.repoId ?? '', url: '' },
+        parsedSlug: args.issueRepo ?? null
+      })
+    const target = imageContext.runtime
     const updates =
       args.preparation && args.updates.body !== undefined
         ? {
@@ -93,18 +93,13 @@ export async function runIssueUpdate(args: {
   if (!args.repoPath && !runtimeHost) {
     throw new Error('No repo context available for this edit.')
   }
-  const target = runtimeHost
-    ? { kind: 'environment' as const, environmentId: runtimeHost.environmentId }
-    : { kind: 'local' as const }
-  const imageContext = gitHubImageContext({
-    runtime: target,
-    target: {
-      kind: 'repo',
-      repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId ?? args.repoPath ?? ''),
-      source: 'issue',
-      ownerRepo: args.issueRepo
-    }
-  })
+  const imageContext =
+    args.preparation?.context ??
+    gitHubBodyImageContext(useAppStore.getState(), {
+      ...args,
+      item: { type: 'issue', repoId: args.repoId ?? args.repoPath ?? '', url: '' },
+      parsedSlug: args.issueRepo
+    })
   const updates =
     args.preparation && args.updates.body !== undefined
       ? {
@@ -183,14 +178,9 @@ export async function runWorkItemBodyUpdate(args: {
     if (!targetSlug) {
       throw new Error('No GitHub repository context available for this pull request.')
     }
-    const target =
-      args.sourceContext?.provider === 'github'
-        ? taskSourceRuntimeTarget(args.sourceContext)
-        : getGitHubMutationTarget(args.item.repoId, args.projectOrigin)
-    const imageContext = gitHubImageContext({
-      runtime: target,
-      target: { kind: 'slug', ...targetSlug }
-    })
+    const imageContext =
+      args.preparation?.context ?? gitHubBodyImageContext(useAppStore.getState(), args)
+    const target = imageContext.runtime
     const body = args.preparation
       ? await prepareGitHubImages({
           body: args.body,

@@ -1,3 +1,5 @@
+import { captureGitHubImageOperation } from '@/components/github/github-image-operation'
+import { useAppStore } from '@/store'
 import { useGitHubRepoDraftKey } from '@/components/github/use-github-repo-draft-key'
 import { useGitHubDraft } from '@/components/github/use-github-draft'
 import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
@@ -34,42 +36,42 @@ export function CommentReplyForm({
   const repoDraftKey = useGitHubRepoDraftKey(repoContext)
   const draft = useGitHubDraft(body, setBody, JSON.stringify([contextKey, repoDraftKey]))
 
-  const submit = useCallback(
-    async () =>
-      draft.submit(async (currentBody, signal) => {
-        const bodyState = getCommentBodySubmitState(currentBody)
-        if (bodyState.status === 'empty' || submitting) {
-          return
-        }
-        if (bodyState.status === 'too-large-leading-whitespace') {
-          toast.error(
-            translate(
-              'auto.components.GitHubItemDialog.commentTooLarge',
-              'Comment is too large to submit safely.'
-            )
+  const submit = useCallback(async () => {
+    const captured = captureGitHubImageOperation(useAppStore.getState(), repoContext)
+    return draft.submit(async (currentBody, signal) => {
+      const bodyState = getCommentBodySubmitState(currentBody)
+      if (bodyState.status === 'empty' || submitting) {
+        return
+      }
+      if (bodyState.status === 'too-large-leading-whitespace') {
+        toast.error(
+          translate(
+            'auto.components.GitHubItemDialog.commentTooLarge',
+            'Comment is too large to submit safely.'
           )
+        )
+        return
+      }
+      try {
+        const ok = await onSubmit(bodyState.body, {
+          context: captured(),
+          signal,
+          beforeUpload: draft.prepareImages,
+          update: draft.prepared
+        })
+        if (!mountedRef.current) {
           return
         }
-        try {
-          const ok = await onSubmit(bodyState.body, {
-            signal,
-            beforeUpload: draft.prepareImages,
-            update: draft.prepared
-          })
-          if (!mountedRef.current) {
-            return
-          }
-          if (ok) {
-            setBody('')
-          }
-        } finally {
-          if (mountedRef.current) {
-            setSubmitting(false)
-          }
+        if (ok) {
+          setBody('')
         }
-      }, setSubmitting),
-    [draft, mountedRef, onSubmit, submitting]
-  )
+      } finally {
+        if (mountedRef.current) {
+          setSubmitting(false)
+        }
+      }
+    }, setSubmitting)
+  }, [draft, mountedRef, onSubmit, submitting, repoContext])
   const canSubmitReply = hasBoundedCommentBodyText(body)
 
   return (

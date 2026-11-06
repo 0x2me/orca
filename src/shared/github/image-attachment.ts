@@ -16,7 +16,7 @@ export function assertGitHubImage(contentType: string, size: number): void {
       'GitHub images must be PNG, JPEG, GIF, WebP, or SVG. Use an image URL for another format.'
     )
   }
-  if (!size || size > GITHUB_IMAGE_MAX_BYTES) {
+  if (!Number.isSafeInteger(size) || size <= 0 || size > GITHUB_IMAGE_MAX_BYTES) {
     throw new GitHubImageValidationError(
       'GitHub images must be nonempty and no larger than 10 MB. Choose a smaller image.'
     )

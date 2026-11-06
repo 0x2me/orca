@@ -21,6 +21,7 @@ function keyedServer() {
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: status.get only reads these three members.
   const runtime = {
     configureNotificationDismissalStore: () => {},
+    disposeGitHubAttachments: () => {},
     getRuntimeId: () => 'test-runtime',
     getStatus: vi.fn().mockResolvedValue({ graphStatus: 'ok' })
   } as unknown as OrcaRuntimeService
@@ -95,6 +96,7 @@ describe('pairing.registerDeviceKey over the dispatcher', () => {
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: registration never touches the runtime service.
       const runtime = {
         configureNotificationDismissalStore: () => {},
+        disposeGitHubAttachments: () => {},
         getRuntimeId: () => 'test-runtime'
       } as unknown as OrcaRuntimeService
       const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
@@ -161,6 +163,7 @@ describe('streams on an authenticated phone socket', () => {
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: phone auth and session.tabs.subscribe read only these members.
     const runtime = {
       configureNotificationDismissalStore: () => {},
+      disposeGitHubAttachments: () => {},
       getRuntimeId: () => 'test-runtime',
       getStartedAt: () => 1,
       machineNameReady: async () => undefined,

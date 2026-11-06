@@ -39,6 +39,7 @@ export function ConversationTabActivity({
   resolvedTimelineItemsLength: number
   issueConversationEntries: IssueConversationEntry[]
   commentCardProps: {
+    itemType: 'issue' | 'pr'
     repoPath: string | null
     repoId: string
     sourceContext?: TaskSourceContext | null

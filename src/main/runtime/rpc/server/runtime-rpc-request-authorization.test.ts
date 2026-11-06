@@ -70,6 +70,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const runtime = {
       configureNotificationDismissalStore: () => {},
+      disposeGitHubAttachments: () => {},
       getRuntimeId: () => 'test-runtime',
       getStatus: vi.fn().mockResolvedValue({ graphStatus: 'ok' })
     } as unknown as OrcaRuntimeService
@@ -240,6 +241,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const createMobileSessionTerminal = vi.fn()
     const runtime = {
       configureNotificationDismissalStore: () => {},
+      disposeGitHubAttachments: () => {},
       getRuntimeId: () => 'test-runtime',
       createMobileSessionTerminal
     } as unknown as OrcaRuntimeService
@@ -287,6 +289,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const pushRuntimeGit = vi.fn().mockResolvedValue({ ok: true })
     const runtime = {
       configureNotificationDismissalStore: () => {},
+      disposeGitHubAttachments: () => {},
       getRuntimeId: () => 'test-runtime',
       pushRuntimeGit
     } as unknown as OrcaRuntimeService

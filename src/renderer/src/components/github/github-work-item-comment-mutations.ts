@@ -1,5 +1,7 @@
-import { prepareGitHubImages, captureGitHubRepoImageContext } from './prepare-github-images'
+import { gitHubRepoImageContext } from './github-image-operation'
+import { prepareGitHubImages, type GitHubImageUploadContext } from './prepare-github-images'
 export type GitHubDraftPreparation = {
+  context?: GitHubImageUploadContext
   signal: AbortSignal
   beforeUpload?: (signal: AbortSignal, sources: readonly string[]) => Promise<void>
   update: (body: string, image?: { source: string; url: string }) => void
@@ -25,10 +27,9 @@ export async function addIssueCommentForRepo(
     type?: 'issue' | 'pr'
   }
 ): Promise<Awaited<ReturnType<typeof window.api.gh.addIssueComment>>> {
-  const imageContext = await captureGitHubRepoImageContext(
-    args,
-    args.type === 'pr' ? 'origin' : 'issue'
-  )
+  const imageContext =
+    args.preparation?.context ??
+    gitHubRepoImageContext(args, args.type === 'pr' ? 'origin' : 'issue')
   const preparedBody = args.preparation
     ? await prepareGitHubImages({
         body: args.body,
@@ -89,7 +90,7 @@ export async function addPRReviewCommentForRepo(
     body: string
   }
 ): Promise<Awaited<ReturnType<typeof window.api.gh.addPRReviewComment>>> {
-  const imageContext = await captureGitHubRepoImageContext(args, 'origin')
+  const imageContext = args.preparation?.context ?? gitHubRepoImageContext(args, 'origin')
   const preparedBody = args.preparation
     ? await prepareGitHubImages({
         body: args.body,
@@ -156,7 +157,7 @@ export async function addPRReviewCommentReplyForRepo(
     line?: number
   }
 ): Promise<Awaited<ReturnType<typeof window.api.gh.addPRReviewCommentReply>>> {
-  const imageContext = await captureGitHubRepoImageContext(args, 'origin')
+  const imageContext = args.preparation?.context ?? gitHubRepoImageContext(args, 'origin')
   const preparedBody = args.preparation
     ? await prepareGitHubImages({
         body: args.body,

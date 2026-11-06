@@ -240,6 +240,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
     const runtime = {
       configureNotificationDismissalStore: () => {},
+      disposeGitHubAttachments: () => {},
       getRuntimeId: () => 'test-runtime'
     } as unknown as OrcaRuntimeService
     const server = new OrcaRuntimeRpcServer({

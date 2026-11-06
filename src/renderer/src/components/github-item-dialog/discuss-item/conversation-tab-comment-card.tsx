@@ -25,6 +25,7 @@ export type ConversationCommentCardContext = {
   repoPath: string | null
   repoId: string | undefined
   sourceContext?: TaskSourceContext | null
+  itemType: 'issue' | 'pr'
   prNumber: number
   prRepo: GitHubOwnerRepo | null
   files: GitHubPRFile[]
@@ -158,7 +159,11 @@ export function renderCommentCard(
         <CommentReactions reactions={comment.reactions} />
         {ctx.resolvedReplyingTo === comment.id && (
           <CommentReplyForm
-            repoContext={ctx}
+            repoContext={{
+              ...ctx,
+              action: 'comment',
+              source: ctx.itemType === 'pr' ? 'origin' : 'issue'
+            }}
             contextKey={JSON.stringify([
               ctx.repoId,
               ctx.repoPath,
@@ -193,6 +198,7 @@ export type ConversationTabCommentCardProps = {
   repoPath: string | null
   repoId: string
   sourceContext?: TaskSourceContext | null
+  itemType: 'issue' | 'pr'
   prNumber: number
   prRepo: GitHubOwnerRepo | null
   files: GitHubPRFile[]

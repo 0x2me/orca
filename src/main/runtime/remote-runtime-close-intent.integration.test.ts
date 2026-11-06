@@ -46,6 +46,7 @@ it(
     })
     const runtime = {
       configureNotificationDismissalStore: () => {},
+      disposeGitHubAttachments: () => {},
       getRuntimeId: () => 'close-intent-runtime-test',
       getStartedAt: () => 1,
       cleanupSubscriptionsForConnection: () => {},

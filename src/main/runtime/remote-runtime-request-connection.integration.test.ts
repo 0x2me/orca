@@ -46,6 +46,7 @@ describe('remote runtime request connection integration', () => {
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: repo.list over the real socket only calls the runtime methods defined below.
       const runtime = {
         configureNotificationDismissalStore: () => {},
+        disposeGitHubAttachments: () => {},
         getRuntimeId: () => 'fetch-runtime-test',
         getStartedAt: () => 1,
         cleanupSubscriptionsForConnection: () => {},
@@ -120,6 +121,7 @@ describe('remote runtime request connection integration', () => {
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this socket fixture implements every runtime method used by client-events subscribe and repo.list.
       const runtime = {
         configureNotificationDismissalStore: () => {},
+        disposeGitHubAttachments: () => {},
         getRuntimeId: () => 'events-runtime-test',
         getStartedAt: () => 1,
         cleanupSubscriptionsForConnection: (connectionId: string) => {
@@ -289,6 +291,7 @@ describe('remote runtime request connection integration', () => {
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this sleep socket fixture implements every runtime method reached by its subscriptions and list requests.
       const runtime = {
         configureNotificationDismissalStore: () => {},
+        disposeGitHubAttachments: () => {},
         getRuntimeId: () => 'remote-sleep-runtime-test',
         getStartedAt: () => 1,
         cleanupSubscriptionsForConnection: (connectionId: string) => {
@@ -519,6 +522,7 @@ describe('remote runtime request connection integration', () => {
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the fake carries only the surface the shared-control and status paths under test read.
       const runtime = {
         configureNotificationDismissalStore: () => {},
+        disposeGitHubAttachments: () => {},
         getRuntimeId: () => 'shared-runtime-test',
         getStartedAt: () => 1,
         machineNameReady: async () => undefined,

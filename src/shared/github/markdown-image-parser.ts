@@ -75,7 +75,8 @@ function htmlDestinations(markdown: string, value: string, token: Event[1]) {
 export function parseMarkdownImageDestinations(markdown: string) {
   const stats = { eventVisits: 0, serializedUnits: 0, decodedDestinations: 0 }
   if (!mayContainGitHubImage(markdown)) {
-    return { images: [] as MarkdownImageDestination[], stats }
+    const images: MarkdownImageDestination[] = []
+    return { images, stats }
   }
   const events = postprocess(
     parse({ extensions: [gfm()] })

@@ -1,10 +1,4 @@
 import { GitHubAttachmentRepoSelection } from '../../../../shared/github/attachment-repo-selection'
-import type { TaskSourceContext } from '../../../../shared/task-source-context'
-import type { GitHubOwnerRepo } from '../../../../shared/github/pull-request-types'
-import {
-  getGitHubSourceRuntimeHost,
-  getGitHubRuntimeRepoId
-} from '@/lib/github-source-runtime-context'
 import { isWebClientLocation } from '@/lib/web-client-location'
 import { getRuntimeEnvironmentRevision } from '@/runtime/runtime-environment-revision'
 import { getRuntimeEnvironmentConnectionGeneration } from '@/store/slices/runtime-status-connection-generation'
@@ -21,11 +15,13 @@ import {
   type GitHubImagePreparation
 } from '../../../../shared/github/image-parser-protocol'
 import { completeClipboardImageUpload } from '@/lib/clipboard-image-chunks'
+import { observeGitHubImageRepo } from './github-image-repo-observation'
 import { callGitHubAttachmentRpc } from '@/runtime/github-attachment-rpc'
 
 export type GitHubImageUploadContext = {
   runtime: RuntimeClientTarget
   target: GitHubAttachmentTarget
+  repoObservation?: { repoId?: string; repoPath?: string; hostId?: string }
   attachmentPreparationId?: string
   rpcOptions?: Parameters<typeof callRuntimeRpc>[3]
 }
@@ -80,27 +76,6 @@ export async function captureGitHubImageContext(
   }
 }
 
-export async function captureGitHubRepoImageContext(
-  args: {
-    repoPath: string
-    repoId?: string
-    sourceContext?: TaskSourceContext | null
-    prRepo?: GitHubOwnerRepo | null
-  },
-  source: 'issue' | 'origin'
-): Promise<GitHubImageUploadContext> {
-  const host = getGitHubSourceRuntimeHost(args.sourceContext)
-  return gitHubImageContext({
-    runtime: host ? { kind: 'environment', environmentId: host.environmentId } : { kind: 'local' },
-    target: {
-      kind: 'repo',
-      repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId) ?? args.repoPath,
-      source,
-      ...(args.prRepo ? { ownerRepo: args.prRepo } : {})
-    }
-  })
-}
-
 export function assertGitHubBodyFitsTransport(body: string): void {
   // Reserve room for selectors and the authenticated request envelope.
   if (
@@ -119,6 +94,9 @@ export async function prepareGitHubImages(args: {
   update: (body: string, image?: { source: string; url: string }) => void
   signal: AbortSignal
 }): Promise<string> {
+  const owner = new AbortController()
+  const signal = AbortSignal.any([args.signal, owner.signal])
+  let observation: ReturnType<typeof observeGitHubImageRepo> | undefined
   let body = args.body
   const classification = args.classification ?? (await classifyGitHubImages(body))
   const sources = classification.sources.filter((source) => source.upload)
@@ -128,17 +106,17 @@ export async function prepareGitHubImages(args: {
   if (!sources.length) {
     return body
   }
-  args.signal.throwIfAborted()
+  signal.throwIfAborted()
   await args.beforeUpload?.(
-    args.signal,
+    signal,
     sources.map((image) => image.source)
   )
-  args.signal.throwIfAborted()
+  signal.throwIfAborted()
   const captured = await captureGitHubImageContext(args.context)
   args.context.runtime = captured.runtime
   args.context.rpcOptions = captured.rpcOptions
   if (sources.length) {
-    const statusSignal = AbortSignal.any([args.signal, AbortSignal.timeout(30_000)])
+    const statusSignal = AbortSignal.any([signal, AbortSignal.timeout(30_000)])
     const status = await callGitHubAttachmentRpc<RuntimeStatus>(
       args.context.runtime,
       'status.get',
@@ -161,7 +139,7 @@ export async function prepareGitHubImages(args: {
       args.context.runtime,
       'repo.show',
       { repo: args.context.target.repo, includeGitHubAttachmentSelection: true },
-      args.signal,
+      signal,
       30_000,
       args.context.rpcOptions
     )
@@ -179,68 +157,92 @@ export async function prepareGitHubImages(args: {
   } else if (args.context.runtime.kind === 'local') {
     args.context.target = { ...args.context.target, wakeWslDistro: true }
   }
-  for (const { source, upload: image } of sources) {
-    args.signal.throwIfAborted()
-    if (!image) {
-      continue
+  const beforeSend = args.context.rpcOptions?.beforeSend
+  if (args.context.target.kind === 'repo' && args.context.target.expectedRepoSelection) {
+    const { useAppStore } = await import('@/store')
+    signal.throwIfAborted()
+    observation = observeGitHubImageRepo(
+      args.context,
+      args.context.target.expectedRepoSelection,
+      owner,
+      useAppStore,
+      signal
+    )
+    args.context.rpcOptions = {
+      ...args.context.rpcOptions,
+      beforeSend: () => {
+        beforeSend?.()
+        observation?.check()
+        signal.throwIfAborted()
+      }
     }
-    const base64 = source.slice(image.base64Start)
-    const stagingDeadline = Date.now() + 120_000
-    const stagingSignal = AbortSignal.any([args.signal, AbortSignal.timeout(120_000)])
-    const stage = <T>(method: string, params: unknown): Promise<T> =>
-      callGitHubAttachmentRpc<T>(
-        args.context.runtime,
-        method,
-        params,
-        stagingSignal,
-        Math.max(1, Math.min(30_000, stagingDeadline - Date.now())),
-        args.context.rpcOptions
-      )
-    const { uploadId } = await stage<{ uploadId: string }>('clipboard.startImageUpload', {
-      expectedBase64Length: base64.length,
-      fileName: image.fileName
-    })
-    const result = await completeClipboardImageUpload(base64, uploadId, stage, async () => {
-      const signal = AbortSignal.any([args.signal, AbortSignal.timeout(135_000)])
-      return callGitHubAttachmentRpc<{ url: string; preparationId: string }>(
-        args.context.runtime,
-        'github.uploadAttachment',
-        {
-          uploadId,
-          preparationId: args.context.attachmentPreparationId,
-          target: args.context.target,
-          contentType: image.contentType,
-          fileName: image.fileName
-        },
-        signal,
-        135_000,
-        args.context.rpcOptions
-      )
-    }).catch(async (error) => {
-      // A cancelled staging signal cannot clean up its unclaimed session itself.
-      await callGitHubAttachmentRpc(
-        args.context.runtime,
-        'clipboard.abortImageUpload',
-        { uploadId },
-        AbortSignal.timeout(5_000),
-        5_000,
-        args.context.rpcOptions
-      ).catch(() => {})
-      throw error
-    })
-    args.signal.throwIfAborted()
-    args.context.rpcOptions?.beforeSend?.()
-    if (typeof result.preparationId !== 'string' || !result.preparationId) {
-      throw new Error(
-        'The Orca server could not retain this image submission. Your draft is kept; try again.'
-      )
-    }
-    args.context.attachmentPreparationId = result.preparationId
-    replacements.set(source, result.url)
-    body = replaceMarkdownImageDestinations(args.body, destinations, replacements)
-    args.update(body, { source, url: result.url })
   }
-  args.context.rpcOptions?.beforeSend?.()
-  assertGitHubBodyFitsTransport(body)
-  return body
+  try {
+    for (const { source, upload: image } of sources) {
+      signal.throwIfAborted()
+      if (!image) {
+        continue
+      }
+      const base64 = source.slice(image.base64Start)
+      const stagingDeadline = Date.now() + 120_000
+      const stagingSignal = AbortSignal.any([signal, AbortSignal.timeout(120_000)])
+      const stage = <T>(method: string, params: unknown): Promise<T> =>
+        callGitHubAttachmentRpc<T>(
+          args.context.runtime,
+          method,
+          params,
+          stagingSignal,
+          Math.max(1, Math.min(30_000, stagingDeadline - Date.now())),
+          args.context.rpcOptions
+        )
+      const { uploadId } = await stage<{ uploadId: string }>('clipboard.startImageUpload', {
+        expectedBase64Length: base64.length,
+        fileName: image.fileName
+      })
+      const result = await completeClipboardImageUpload(base64, uploadId, stage, async () => {
+        const uploadSignal = AbortSignal.any([signal, AbortSignal.timeout(135_000)])
+        return callGitHubAttachmentRpc<{ url: string; preparationId: string }>(
+          args.context.runtime,
+          'github.uploadAttachment',
+          {
+            uploadId,
+            preparationId: args.context.attachmentPreparationId,
+            target: args.context.target,
+            contentType: image.contentType,
+            fileName: image.fileName
+          },
+          uploadSignal,
+          135_000,
+          args.context.rpcOptions
+        )
+      }).catch(async (error) => {
+        // A cancelled staging signal cannot clean up its unclaimed session itself.
+        await callGitHubAttachmentRpc(
+          args.context.runtime,
+          'clipboard.abortImageUpload',
+          { uploadId },
+          AbortSignal.timeout(5_000),
+          5_000,
+          args.context.rpcOptions
+        ).catch(() => {})
+        throw error
+      })
+      signal.throwIfAborted()
+      args.context.rpcOptions?.beforeSend?.()
+      if (typeof result.preparationId !== 'string' || !result.preparationId) {
+        throw new Error(
+          'The Orca server could not retain this image submission. Your draft is kept; try again.'
+        )
+      }
+      args.context.attachmentPreparationId = result.preparationId
+      replacements.set(source, result.url)
+      body = replaceMarkdownImageDestinations(args.body, destinations, replacements)
+      args.update(body, { source, url: result.url })
+    }
+    args.context.rpcOptions?.beforeSend?.()
+    assertGitHubBodyFitsTransport(body)
+    return body
+  } finally {
+    observation?.dispose()
+  }
 }

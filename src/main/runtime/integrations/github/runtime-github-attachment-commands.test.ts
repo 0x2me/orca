@@ -309,3 +309,48 @@ it.each(['binding', 'source'])(
     expect(mocks.gh).not.toHaveBeenCalled()
   }
 )
+
+it.each(['equivalent', 'changed'] as const)(
+  'handles %s SSH route changes while final validation is awaited',
+  async (change) => {
+    repo = { ...repo, executionHostId: 'ssh:actual', connectionId: 'stale-a' }
+    target = { ...target, expectedRepoSelection: githubAttachmentRepoSelection(repo, {}) }
+    expect(target.expectedRepoSelection).toMatchObject({
+      connectionId: 'actual',
+      executionHostId: 'ssh:actual'
+    })
+    const { preparationId } = await upload()
+    const started = Promise.withResolvers<() => void>()
+    mocks.parseStarted.mockImplementationOnce((_request, respond) => started.resolve(respond))
+    mocks.gh.mockClear()
+    const pending = invoke('github.updateIssue', {
+      repo: 'repo',
+      number: 42,
+      updates: { body: '![screen](https://github.com/user-attachments/assets/image)' },
+      attachmentPreparationId: preparationId
+    })
+    const respond = await started.promise
+    repo = {
+      ...repo,
+      connectionId: 'stale-b',
+      executionHostId: change === 'equivalent' ? 'ssh:actual' : 'ssh:changed'
+    }
+    respond()
+    if (change === 'equivalent') {
+      await expect(pending).resolves.toMatchObject({ ok: true })
+      expect(mocks.gh).toHaveBeenCalled()
+      expect(mocks.remote).toHaveBeenCalledWith(
+        '/repo',
+        expect.any(String),
+        'actual',
+        expect.anything()
+      )
+    } else {
+      await expect(pending).resolves.toMatchObject({
+        ok: false,
+        error: expect.stringContaining('draft is kept')
+      })
+      expect(mocks.gh).not.toHaveBeenCalled()
+    }
+  }
+)

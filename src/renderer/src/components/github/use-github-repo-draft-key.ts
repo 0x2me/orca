@@ -1,58 +1,72 @@
 import { useRef } from 'react'
 import { useAppStore } from '@/store'
-import { resolveGitHubRepoOperationOwner } from '@/lib/github-source-runtime-context'
 import { githubAttachmentRepoSelection } from '../../../../shared/github/attachment-repo-selection'
-import type { TaskSourceContext } from '../../../../shared/task-source-context'
+import { resolveGitHubImageOperation, type GitHubImageOperation } from './github-image-operation'
+import { findGitHubImageOperationRepo } from './github-image-repo-observation'
 
-export function useGitHubRepoDraftKey(args: {
-  repoId?: string | null
-  repoPath?: string | null
-  sourceContext?: TaskSourceContext | null
-}): string {
+export function useGitHubRepoDraftKey(args: GitHubImageOperation): string {
+  const source = args.sourceContext
+  const body = args.action === 'body' ? args : undefined
+  const comment = args.action === 'comment' ? args : undefined
+  const project = body?.projectOrigin
+  const slug = body?.parsedSlug
+  const owner = body?.item.prRepo ?? comment?.prRepo
+  // Only operation semantics participate; store events never rebuild these inputs.
+  const values = [
+    args.action,
+    args.repoPath,
+    source?.provider,
+    source?.hostId,
+    source?.repoId,
+    comment?.repoId,
+    comment?.source,
+    body?.item.type,
+    body?.item.repoId,
+    body?.item.url,
+    owner?.owner,
+    owner?.repo,
+    owner?.host,
+    project?.owner,
+    project?.repo,
+    project?.host,
+    project?.cacheKey,
+    slug?.owner,
+    slug?.repo,
+    slug?.host
+  ]
+  const semanticInput = useRef<{ values: readonly unknown[]; args: GitHubImageOperation } | null>(
+    null
+  )
+  if (
+    !semanticInput.current ||
+    values.some((value, index) => value !== semanticInput.current?.values[index])
+  ) {
+    semanticInput.current = { values, args }
+  }
+  const input = semanticInput.current.args
   const previous = useRef<{
     repos: ReturnType<typeof useAppStore.getState>['repos']
-    environment: string | null
-    repoId: typeof args.repoId
-    repoPath: typeof args.repoPath
-    provider: TaskSourceContext['provider'] | undefined
-    sourceRepoId: string | null | undefined
-    hostId: TaskSourceContext['hostId'] | undefined
+    input: GitHubImageOperation
     key: string
   } | null>(null)
   return useAppStore((state) => {
-    const environment = state.settings?.activeRuntimeEnvironmentId ?? null
-    const { repoId, repoPath, sourceContext } = args
-    const provider = sourceContext?.provider
-    const sourceRepoId = sourceContext?.repoId
-    const hostId = sourceContext?.hostId
     const cached = previous.current
-    if (
-      cached &&
-      cached.repos === state.repos &&
-      cached.environment === environment &&
-      cached.repoId === repoId &&
-      cached.repoPath === repoPath &&
-      cached.provider === provider &&
-      cached.sourceRepoId === sourceRepoId &&
-      cached.hostId === hostId
-    ) {
+    if (cached && cached.repos === state.repos && cached.input === input) {
       return cached.key
     }
-    const owner = resolveGitHubRepoOperationOwner(state, args)
-    const key = JSON.stringify([
-      owner.target,
-      owner.repo ? githubAttachmentRepoSelection(owner.repo, {}) : null
-    ])
-    previous.current = {
-      repos: state.repos,
-      environment,
-      repoId,
-      repoPath,
-      provider,
-      sourceRepoId,
-      hostId,
-      key
+    let key = 'unresolved'
+    try {
+      const context = resolveGitHubImageOperation(state, input)
+      const repo = findGitHubImageOperationRepo(state.repos, context)
+      key = JSON.stringify([
+        context.runtime,
+        context.target,
+        repo ? githubAttachmentRepoSelection(repo, {}) : null
+      ])
+    } catch {
+      // An unresolved render observation never replaces the action's existing refusal.
     }
+    previous.current = { repos: state.repos, input, key }
     return key
   })
 }

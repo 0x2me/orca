@@ -104,7 +104,8 @@ it.each(['github', 'gitlab'] as const)(
     ).resolves.toBe(true)
     expect(create).toHaveBeenLastCalledWith(
       expect.any(String),
-      expect.objectContaining({ title: 'ALT-42 Fix login' })
+      expect.objectContaining({ title: 'ALT-42 Fix login' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal), update: expect.any(Function) })
     )
     expect(lookup).toHaveBeenCalledWith('wt-1', 'ssh:owner')
     runtime.generate.mockResolvedValue({
@@ -118,7 +119,8 @@ it.each(['github', 'gitlab'] as const)(
     expect(runtime.generate).toHaveBeenCalled()
     expect(create).toHaveBeenLastCalledWith(
       expect.any(String),
-      expect.objectContaining({ title: 'ALT-42 Better login' })
+      expect.objectContaining({ title: 'ALT-42 Better login' }),
+      expect.objectContaining({ signal: expect.any(AbortSignal), update: expect.any(Function) })
     )
   }
 )

@@ -14,12 +14,15 @@ import type { AppState } from '@/store/types'
 import type { GitHubCommentResult, PRComment } from '../../../../shared/github/comment-types'
 import { GitHubMarkdownComposer } from './GitHubMarkdownComposer'
 
-type ComposerStoreState = { settings: Partial<AppState['settings']> }
+type ComposerStoreState = { settings: Partial<AppState['settings']>; repos: AppState['repos'] }
 
 vi.mock('@/store', () => ({
   useAppStore: Object.assign(
-    (selector: (state: ComposerStoreState) => unknown) => selector({ settings: {} }),
-    { getState: () => ({ recordFeatureInteraction: vi.fn() }) }
+    (selector: (state: ComposerStoreState) => unknown) => selector({ settings: {}, repos: [] }),
+    {
+      getState: () => ({ repos: [], recordFeatureInteraction: vi.fn() }),
+      subscribe: () => () => {}
+    }
   )
 }))
 vi.mock('@/components/editor/rich-markdown/commands/RichMarkdownToolbar', () => ({
@@ -72,7 +75,7 @@ beforeEach(() => {
     throw new Error('Unexpected final writer')
   })
   let staged = ''
-  attachmentRpc.mockImplementation(async (_target, method, params) => {
+  attachmentRpc.mockReset().mockImplementation(async (_target, method, params) => {
     if (method === 'status.get') {
       return { capabilities: ['github.image-attachments.v1'] }
     }
@@ -558,5 +561,50 @@ it('prepares a reference-definition image through its actual rich editor owner',
   ).toHaveLength(1)
   expect(draft.value).toBe(
     '![shot][capture]\n\n[capture]: https://github.com/user-attachments/assets/a'
+  )
+})
+
+it('replaces an unresolved raw HTML image while preserving an unrelated valueless src', async () => {
+  const original = '<div>\n<img src><img src="data:image/png;base64,YQ==">\n</div>'
+  const draft = new GitHubDraft(original, vi.fn(), 'owner')
+  const view = render(
+    <GitHubMarkdownComposer
+      value={original}
+      draft={draft}
+      onChange={draft.change}
+      placeholder="Description"
+    />
+  )
+  await waitFor(() => expect(view.container.querySelector('.tiptap')).not.toBeNull())
+  const element = getComposerEditor(view.container)
+  if (!('editor' in element) || !(element.editor instanceof Editor)) {
+    throw new Error('Missing real editor')
+  }
+  const editor = element.editor
+  await act(async () => {
+    await draft.submit(
+      async (body, signal) => {
+        await prepareGitHubImages({
+          body,
+          signal,
+          context: {
+            runtime: { kind: 'local' },
+            target: { kind: 'slug', owner: 'owner', repo: 'repo', host: 'github.com' }
+          },
+          update: draft.prepared,
+          beforeUpload: draft.prepareImages
+        })
+      },
+      () => {}
+    )
+  })
+  expect(
+    attachmentRpc.mock.calls.filter((call) => call[1] === 'github.uploadAttachment')
+  ).toHaveLength(1)
+  expect(draft.value).toBe(
+    '<div>\n<img src><img src="https://github.com/user-attachments/assets/b">\n</div>'
+  )
+  expect(editor.getMarkdown()).toBe(
+    '<div>\n\n<img src><img src="https://github.com/user-attachments/assets/b">\n\n</div>'
   )
 })

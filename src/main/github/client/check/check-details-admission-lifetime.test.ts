@@ -168,49 +168,60 @@ describe('check details existing admission ownership', () => {
     expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private-output')
   })
 
-  it('retains cancelled creators through shared help settlement without starting abandoned token children', async () => {
-    signalMock.mockClear()
-    const options: GhExecOptions = {
-      cwd: '/folder',
-      ghAccount: { host: 'github.com', user: 'Alice' },
-      env: {}
-    }
-    resolverMock.mockResolvedValue({ ownerRepo: repo, ghOptions: options })
-    const controllers = Array.from({ length: 4 }, () => new AbortController())
-    const results = controllers.map((controller) =>
-      getPRCheckDetails('/folder', { checkRunId: 1 }, undefined, {}, controller.signal).catch(
-        (error: unknown) => error
+  it.each(['close', 'error-before-close'])(
+    'retains cancelled creators through shared help %s without starting abandoned token children',
+    async (ending) => {
+      signalMock.mockClear()
+      const options: GhExecOptions = {
+        cwd: '/folder',
+        ghAccount: { host: 'github.com', user: 'Alice' },
+        env: {}
+      }
+      resolverMock.mockResolvedValue({ ownerRepo: repo, ghOptions: options })
+      const controllers = Array.from({ length: 4 }, () => new AbortController())
+      const results = controllers.map((controller) =>
+        getPRCheckDetails('/folder', { checkRunId: 1 }, undefined, {}, controller.signal).catch(
+          (error: unknown) => error
+        )
       )
-    )
-    await vi.advanceTimersByTimeAsync(0)
-    expect(spawnMock.mock.calls.map((call) => call[1])).toEqual([['auth', 'token', '--help']])
-    const liveCapability = getGhMultiAccountCapability({ cwd: '/folder' })
-    for (const controller of controllers) {
-      controller.abort()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(spawnMock.mock.calls.map((call) => call[1])).toEqual([['auth', 'token', '--help']])
+      const liveCapability = getGhMultiAccountCapability({ cwd: '/folder' })
+      for (const controller of controllers) {
+        controller.abort()
+      }
+      for (const result of await Promise.all(results)) {
+        expect(result).toMatchObject({ name: 'AbortError' })
+      }
+      resolverMock.mockResolvedValue({ ownerRepo: repo, ghOptions: { cwd: '/folder', env: {} } })
+      const fifth = getPRCheckDetails('/folder', { checkRunId: 5 })
+      void fifth.catch(() => {})
+      await vi.advanceTimersByTimeAsync(9_000)
+      // Public departure does not release permits while the shared child still owns its termination receipt.
+      expect(spawnMock.mock.calls.map((call) => call[1])).toEqual([['auth', 'token', '--help']])
+      expect(signalMock).not.toHaveBeenCalled()
+      if (ending === 'error-before-close') {
+        children[0].emit('error', new Error('private-output'))
+        await vi.advanceTimersByTimeAsync(0)
+        expect(spawnMock.mock.calls.map((call) => call[1])).toEqual([['auth', 'token', '--help']])
+        expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private-output')
+      }
+      completeFakeSpawn(children[0], { stdout: '--user' })
+      await expect(liveCapability).resolves.toBe(ending === 'close' ? 'supported' : 'unknown')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(children).toHaveLength(2)
+      expect(spawnMock.mock.calls[1][1]).toContain('repos/acme/widgets/check-runs/5')
+      completeFakeSpawn(children[1], { stdout: '{"name":"fifth"}' })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(spawnMock.mock.calls[2][1]).toContain(
+        'repos/acme/widgets/check-runs/5/annotations?per_page=20'
+      )
+      completeFakeSpawn(children[2], { stdout: '[]' })
+      await expect(fifth).resolves.toMatchObject({ name: 'fifth' })
+      await expect(getGhMultiAccountCapability({ cwd: '/folder' })).resolves.toBe(
+        ending === 'close' ? 'supported' : 'unknown'
+      )
+      expect(spawnMock.mock.calls.map((call) => call[1][0])).toEqual(['auth', 'api', 'api'])
     }
-    for (const result of await Promise.all(results)) {
-      expect(result).toMatchObject({ name: 'AbortError' })
-    }
-    resolverMock.mockResolvedValue({ ownerRepo: repo, ghOptions: { cwd: '/folder', env: {} } })
-    const fifth = getPRCheckDetails('/folder', { checkRunId: 5 })
-    void fifth.catch(() => {})
-    await vi.advanceTimersByTimeAsync(9_000)
-    // Public departure does not release permits while the shared child still owns its termination receipt.
-    expect(spawnMock.mock.calls.map((call) => call[1])).toEqual([['auth', 'token', '--help']])
-    expect(signalMock).not.toHaveBeenCalled()
-    completeFakeSpawn(children[0], { stdout: '--user' })
-    await expect(liveCapability).resolves.toBe('supported')
-    await vi.advanceTimersByTimeAsync(0)
-    expect(children).toHaveLength(2)
-    expect(spawnMock.mock.calls[1][1]).toContain('repos/acme/widgets/check-runs/5')
-    completeFakeSpawn(children[1], { stdout: '{"name":"fifth"}' })
-    await vi.advanceTimersByTimeAsync(0)
-    expect(spawnMock.mock.calls[2][1]).toContain(
-      'repos/acme/widgets/check-runs/5/annotations?per_page=20'
-    )
-    completeFakeSpawn(children[2], { stdout: '[]' })
-    await expect(fifth).resolves.toMatchObject({ name: 'fifth' })
-    await expect(getGhMultiAccountCapability({ cwd: '/folder' })).resolves.toBe('supported')
-    expect(spawnMock.mock.calls.map((call) => call[1][0])).toEqual(['auth', 'api', 'api'])
-  })
+  )
 })

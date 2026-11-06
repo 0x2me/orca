@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { create } from 'zustand'
+import { BrowserImageParserFixture } from '../../../../shared/github/__fixtures__/image-parser-worker-fixture'
 import type { AppState } from '../types'
 import { createHostedReviewSlice } from './hosted-review'
 import './hosted-review-card-refresh'
@@ -12,6 +13,11 @@ const runtimeRpc = vi.hoisted(() => ({
   callRuntimeRpc: vi.fn(),
   attachment: vi.fn()
 }))
+vi.mock('@/store', () => ({
+  useAppStore: { getState: () => ({ repos: [] }), subscribe: () => () => {} }
+}))
+beforeEach(() => vi.stubGlobal('Worker', BrowserImageParserFixture))
+
 vi.mock('@/runtime/github-attachment-rpc', () => ({
   callGitHubAttachmentRpc: runtimeRpc.attachment
 }))
@@ -255,7 +261,8 @@ it.each(['createHostedReview', 'createStackedHostedReview'] as const)(
 )
 
 it('gives image preparation its own budget before dispatching the normal final PR write', async () => {
-  vi.useFakeTimers()
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  vi.stubGlobal('Worker', BrowserImageParserFixture)
   const store = makeStore()
   const upload = Promise.withResolvers<{ url: string; preparationId: string }>()
   runtimeRpc.attachment.mockImplementation(async (_runtime, method) => {
@@ -299,6 +306,16 @@ it('gives image preparation its own budget before dispatching the normal final P
       head: 'feature'
     },
     { signal: new AbortController().signal, update }
+  )
+  await vi.waitFor(() =>
+    expect(runtimeRpc.attachment).toHaveBeenCalledWith(
+      expect.anything(),
+      'github.uploadAttachment',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    )
   )
   await vi.advanceTimersByTimeAsync(45_000)
   expect(runtimeRpc.callRuntimeRpc).not.toHaveBeenCalled()

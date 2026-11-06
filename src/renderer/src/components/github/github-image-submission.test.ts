@@ -112,6 +112,16 @@ describe('GitHub image submission', () => {
     expect(uploads).toBe(3)
   })
 
+  it('refuses a padding-only empty image before staging an earlier valid image', async () => {
+    const body = '![valid](data:image/png;base64,AA==)\n![empty](data:image/png;base64,==)'
+    const update = vi.fn()
+    await expect(
+      prepareGitHubImages({ body, context, signal: new AbortController().signal, update })
+    ).rejects.toThrow('nonempty')
+    expect(rpc).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it('prepares the rendered image after HTML comment termination without changing surrounding source', async () => {
     const update = vi.fn()
     const body = '<!-- comment --!><img src="data:image/png;base64,YQ==">'

@@ -21,11 +21,16 @@ function createGitHubPreparedImageUpdater(editor: Editor) {
       signal: AbortSignal
       sources: readonly string[]
     }): Promise<void> => {
+      const requested = new Set(context.sources)
       const document = editor.state.doc
       const nodes: { position: number; source?: string; value?: string }[] = []
       const values = new Map<string, number>()
       document.descendants((node, position) => {
-        if (node.type.name === 'image' && typeof node.attrs.src === 'string') {
+        if (
+          node.type.name === 'image' &&
+          typeof node.attrs.src === 'string' &&
+          requested.has(node.attrs.src)
+        ) {
           nodes.push({ position, source: node.attrs.src })
         }
         if (
@@ -59,7 +64,8 @@ function createGitHubPreparedImageUpdater(editor: Editor) {
         }
         if (node.value !== undefined) {
           const index = values.get(node.value)
-          const destinations = index === undefined ? [] : results[index]
+          const indexed = index === undefined ? undefined : results[index]
+          const destinations = indexed?.filter((image) => requested.has(image.source))
           if (!destinations || destinations.some((image) => image.start < 0)) {
             throw new Error(
               'This image cannot be replaced safely. Paste it again, or use an image URL.'

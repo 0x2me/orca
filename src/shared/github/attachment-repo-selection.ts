@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { getRepoExecutionHostId, getRepoRoutingConnectionId } from '../execution-host'
 import type { Repo } from '../repo-types'
 import { OptionalGhAccountExpectation } from '../rpc-contract/github-repo-target-params'
 import { normalizeGhAccountBinding } from './account-binding'
@@ -22,8 +23,8 @@ export function githubAttachmentRepoSelection(
     id: repo.id,
     path: repo.path,
     issueSourcePreference: repo.issueSourcePreference ?? 'auto',
-    connectionId: repo.connectionId ?? null,
-    executionHostId: repo.executionHostId ?? null,
+    connectionId: getRepoRoutingConnectionId(repo),
+    executionHostId: getRepoExecutionHostId(repo),
     wslDistro: options.wslDistro ?? null,
     ghAccount: normalizeGhAccountBinding(repo.ghAccount) ?? null
   }
