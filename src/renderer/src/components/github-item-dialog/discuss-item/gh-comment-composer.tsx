@@ -1,3 +1,4 @@
+import { useGitHubRepoDraftKey } from '@/components/github/use-github-repo-draft-key'
 import { useGitHubDraft } from '@/components/github/use-github-draft'
 import React, { useCallback, useState } from 'react'
 import { LoaderCircle, Send } from 'lucide-react'
@@ -40,10 +41,11 @@ export function GHCommentComposer({
   const [body, setBody] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const mountedRef = useMountedRef()
+  const repoDraftKey = useGitHubRepoDraftKey({ repoId, repoPath, sourceContext })
   const draft = useGitHubDraft(
     body,
     setBody,
-    JSON.stringify([repoPath, repoId, sourceContext, issueNumber, itemType, prRepo])
+    JSON.stringify([repoPath, repoId, sourceContext, issueNumber, itemType, prRepo, repoDraftKey])
   )
 
   const handleSubmit = useCallback(
@@ -69,7 +71,7 @@ export function GHCommentComposer({
             sourceContext,
             number: issueNumber,
             body: bodyState.body,
-            preparation: { signal, update: draft.change },
+            preparation: { signal, update: draft.prepared },
             type: itemType,
             prRepo
           })

@@ -36,17 +36,25 @@ function withoutWslWake<T extends object>(args: T): Omit<T, 'wakeWslDistro'> {
 }
 
 function runtimeGitHubSlugApi(
-  environmentId: string,
-  options?: Parameters<typeof callRuntimeRpc>[3]
+  target: RuntimeClientTarget,
+  options?: Parameters<typeof callRuntimeRpc>[3],
+  attachmentPreparationId?: string
 ): GitHubSlugApi {
-  const target = { kind: 'environment', environmentId } as const
   const call =
     <K extends GitHubSlugMethod>(method: K) =>
     (args: SlugArgs<K>): Promise<SlugResult<K>> =>
-      callRuntimeRpc<SlugResult<K>>(target, GITHUB_WEB_RPC_METHODS[method], withoutWslWake(args), {
-        ...options,
-        timeoutMs: GITHUB_SLUG_RPC_TIMEOUT_MS
-      })
+      callRuntimeRpc<SlugResult<K>>(
+        target,
+        GITHUB_WEB_RPC_METHODS[method],
+        {
+          ...(target.kind === 'local' && attachmentPreparationId ? args : withoutWslWake(args)),
+          ...(attachmentPreparationId ? { attachmentPreparationId } : {})
+        },
+        {
+          ...options,
+          timeoutMs: GITHUB_SLUG_RPC_TIMEOUT_MS
+        }
+      )
   return {
     projectWorkItemDetailsBySlug: call('projectWorkItemDetailsBySlug'),
     updateIssueBySlug: call('updateIssueBySlug'),
@@ -80,10 +88,11 @@ function rejectingGitHubSlugApi(error: unknown): GitHubSlugApi {
 /** The slug-addressed `gh` API on an already-resolved credential target. */
 export function gitHubSlugApiForTarget(
   target: RuntimeClientTarget,
-  options?: Parameters<typeof callRuntimeRpc>[3]
+  options?: Parameters<typeof callRuntimeRpc>[3],
+  attachmentPreparationId?: string
 ): GitHubSlugApi {
-  return target.kind === 'environment'
-    ? runtimeGitHubSlugApi(target.environmentId, options)
+  return target.kind === 'environment' || attachmentPreparationId
+    ? runtimeGitHubSlugApi(target, options, attachmentPreparationId)
     : window.api.gh
 }
 

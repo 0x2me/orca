@@ -4,6 +4,7 @@ import { Editor } from '@tiptap/react'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { ConversationTab } from '@/components/github-item-dialog/discuss-item/conversation-tab'
 import { GHCommentComposer } from '@/components/github-item-dialog/discuss-item/gh-comment-composer'
 import type { AppState } from '@/store/types'
 import type { GitHubCommentResult, PRComment } from '../../../../shared/github/comment-types'
@@ -12,7 +13,10 @@ import { GitHubMarkdownComposer } from './GitHubMarkdownComposer'
 type ComposerStoreState = { settings: Partial<AppState['settings']> }
 
 vi.mock('@/store', () => ({
-  useAppStore: (selector: (state: ComposerStoreState) => unknown) => selector({ settings: {} })
+  useAppStore: Object.assign(
+    (selector: (state: ComposerStoreState) => unknown) => selector({ settings: {} }),
+    { getState: () => ({ recordFeatureInteraction: vi.fn() }) }
+  )
 }))
 vi.mock('@/components/editor/rich-markdown/commands/RichMarkdownToolbar', () => ({
   RichMarkdownToolbar: () => null
@@ -23,11 +27,24 @@ vi.mock('@/components/editor/rich-markdown/tables/RichMarkdownTableControls', ()
 vi.mock('@/components/github/github-markdown-composer-preview-pane', () => ({
   GitHubMarkdownComposerPreviewPane: () => null
 }))
-const attachmentRpc = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/pr-bot-author-overrides', () => ({ usePRBotAuthorOverrides: () => ({}) }))
+vi.mock('@/components/github-item-dialog/discuss-item/conversation-tab-activity', () => ({
+  ConversationTabActivity: () => null
+}))
+vi.mock('@/components/github-item-dialog/discuss-item/conversation-tab-pr-sidebar', () => ({
+  ConversationTabPRSidebar: () => null
+}))
+vi.mock('@/components/sidebar/CommentMarkdown', () => ({ default: () => null }))
+const { attachmentRpc, finalRpc } = vi.hoisted(() => ({
+  attachmentRpc: vi.fn(),
+  finalRpc: vi.fn()
+}))
+vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: finalRpc }))
 vi.mock('@/runtime/github-attachment-rpc', () => ({ callGitHubAttachmentRpc: attachmentRpc }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
 const addIssueComment = vi.fn<typeof window.api.gh.addIssueComment>()
+const updateIssue = vi.fn<typeof window.api.gh.updateIssue>()
 const comment: PRComment = {
   id: 29533,
   author: 'test-author',
@@ -39,10 +56,33 @@ const comment: PRComment = {
 
 beforeEach(() => {
   addIssueComment.mockReset()
+  updateIssue.mockReset().mockResolvedValue({ ok: true })
+  finalRpc.mockReset().mockImplementation(async (_target, method, params) => {
+    if (method === 'github.addIssueComment') {
+      return addIssueComment(params)
+    }
+    if (method === 'github.updateIssue') {
+      return updateIssue(params)
+    }
+    throw new Error('Unexpected final writer')
+  })
   let staged = ''
   attachmentRpc.mockImplementation(async (_target, method, params) => {
     if (method === 'status.get') {
       return { capabilities: ['github.image-attachments.v1'] }
+    }
+    if (method === 'repo.show') {
+      return {
+        githubAttachmentSelection: {
+          id: 'repo',
+          path: '/folder-workspace',
+          issueSourcePreference: 'auto',
+          connectionId: null,
+          executionHostId: null,
+          wslDistro: null,
+          ghAccount: null
+        }
+      }
     }
     if (method === 'clipboard.startImageUpload') {
       return { uploadId: 'image' }
@@ -52,12 +92,19 @@ beforeEach(() => {
     }
     if (method === 'github.uploadAttachment') {
       return {
+        preparationId: 'prepared',
         url: `https://github.com/user-attachments/assets/${staged === 'AA==' ? 'a' : 'b'}`
       }
     }
     return {}
   })
-  vi.stubGlobal('api', { gh: { addIssueComment } })
+  vi.stubGlobal('api', {
+    gh: {
+      addIssueComment,
+      updateIssue,
+      notifyWorkItemMutated: vi.fn().mockResolvedValue(undefined)
+    }
+  })
 })
 afterEach(() => {
   cleanup()
@@ -114,6 +161,7 @@ describe('GitHubMarkdownComposer submission', () => {
         throw new Error('Missing real editor')
       }
       const editor = element.editor
+      const parse = vi.spyOn(editor.markdown, 'parse')
       act(() => editor.commands.setTextSelection(editor.state.doc.content.size - 1))
       const clipboardData = new DataTransfer()
       clipboardData.items.add(new File(['a'], 'first.png', { type: 'image/png' }))
@@ -137,11 +185,18 @@ describe('GitHubMarkdownComposer submission', () => {
         readers[0].dispatchEvent(new ProgressEvent('load'))
       })
       await waitFor(() => expect(addIssueComment).toHaveBeenCalledOnce())
+      expect(finalRpc).toHaveBeenCalledWith(
+        { kind: 'local' },
+        'github.addIssueComment',
+        expect.objectContaining({ attachmentPreparationId: 'prepared' }),
+        expect.objectContaining({ timeoutMs: 30_000 })
+      )
       const posted = addIssueComment.mock.calls[0][0].body
       expect(posted).toBe(
         'prefix Submitted comment![](https://github.com/user-attachments/assets/a)![](https://github.com/user-attachments/assets/b)'
       )
       expect(posted).not.toContain('data:')
+      expect(parse).not.toHaveBeenCalled()
       await act(async () => request.resolve({ ok: true, comment }))
     }
   )
@@ -245,4 +300,82 @@ describe('GitHubMarkdownComposer submission', () => {
     expect(getComposerEditor(view.container).getAttribute('contenteditable')).toBe('true')
     expect(onChange).not.toHaveBeenCalled()
   })
+
+  it.each(['button', 'shortcut'])(
+    'saves the real description owner after an accepted delayed paste via %s',
+    async (trigger) => {
+      const readers: FileReader[] = []
+      vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (
+        this: FileReader
+      ) {
+        readers.push(this)
+      })
+      const onBodyUpdated = vi.fn()
+      const view = render(
+        <TooltipProvider>
+          <ConversationTab
+            item={{
+              id: 'issue-1',
+              type: 'issue',
+              number: 29521,
+              title: 'Issue',
+              state: 'open',
+              url: 'https://github.com/owner/repo/issues/29521',
+              labels: [],
+              updatedAt: '2026-11-05T12:00:00Z',
+              author: 'author',
+              repoId: 'repo'
+            }}
+            repoPath="/folder-workspace"
+            repoId="repo"
+            body="Original description"
+            comments={[]}
+            files={[]}
+            headSha={undefined}
+            baseSha={undefined}
+            loading={false}
+            detailsLoaded={true}
+            checks={undefined}
+            localState="open"
+            projectOrigin={undefined}
+            onStateChange={vi.fn()}
+            onMutated={vi.fn()}
+            onChecksUpdated={vi.fn()}
+            onBodyUpdated={onBodyUpdated}
+            onCommentAdded={vi.fn()}
+            onReviewersRequested={vi.fn()}
+          />
+        </TooltipProvider>
+      )
+      fireEvent.click(view.getByRole('button', { name: 'Edit description' }))
+      await waitFor(() => expect(view.container.querySelector('.tiptap')).not.toBeNull())
+      const element = getComposerEditor(view.container)
+      const clipboardData = new DataTransfer()
+      clipboardData.items.add(new File(['a'], 'screenshot.png', { type: 'image/png' }))
+      fireEvent.paste(element, { clipboardData })
+      if (trigger === 'button') {
+        const save = view.getByRole('button', { name: 'Save' })
+        expect(save.hasAttribute('disabled')).toBe(false)
+        fireEvent.click(save)
+      } else {
+        fireEvent.keyDown(element, { key: 'Enter', ctrlKey: true })
+      }
+      expect(updateIssue).not.toHaveBeenCalled()
+      await act(async () => {
+        const reader = readers[0]
+        if (!reader) {
+          throw new Error('Missing accepted image read')
+        }
+        Object.defineProperty(reader, 'result', { value: 'data:image/png;base64,AA==' })
+        reader.dispatchEvent(new ProgressEvent('load'))
+      })
+      await waitFor(() => expect(updateIssue).toHaveBeenCalledOnce())
+      expect(updateIssue.mock.calls[0][0].updates.body).toContain(
+        'https://github.com/user-attachments/assets/a'
+      )
+      expect(onBodyUpdated).toHaveBeenCalledWith(
+        expect.stringContaining('https://github.com/user-attachments/assets/a')
+      )
+    }
+  )
 })

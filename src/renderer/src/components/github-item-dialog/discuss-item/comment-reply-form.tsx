@@ -1,3 +1,4 @@
+import { useGitHubRepoDraftKey } from '@/components/github/use-github-repo-draft-key'
 import { useGitHubDraft } from '@/components/github/use-github-draft'
 import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
 import React, { useCallback, useState } from 'react'
@@ -16,19 +17,22 @@ export function CommentReplyForm({
   className,
   placeholder,
   contextKey,
+  repoContext,
   onCancel,
   onSubmit
 }: {
   className?: string
   placeholder: string
   contextKey: string
+  repoContext: Parameters<typeof useGitHubRepoDraftKey>[0]
   onCancel: () => void
   onSubmit: (body: string, preparation: GitHubDraftPreparation) => Promise<boolean>
 }): React.JSX.Element {
   const [body, setBody] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const mountedRef = useMountedRef()
-  const draft = useGitHubDraft(body, setBody, contextKey)
+  const repoDraftKey = useGitHubRepoDraftKey(repoContext)
+  const draft = useGitHubDraft(body, setBody, JSON.stringify([contextKey, repoDraftKey]))
 
   const submit = useCallback(
     async () =>
@@ -47,7 +51,7 @@ export function CommentReplyForm({
           return
         }
         try {
-          const ok = await onSubmit(bodyState.body, { signal, update: draft.change })
+          const ok = await onSubmit(bodyState.body, { signal, update: draft.prepared })
           if (!mountedRef.current) {
             return
           }

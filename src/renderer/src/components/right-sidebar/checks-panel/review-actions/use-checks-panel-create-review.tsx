@@ -1,3 +1,4 @@
+import { githubAttachmentRepoSelection } from '../../../../../../shared/github/attachment-repo-selection'
 import { useGitHubDraft } from '@/components/github/use-github-draft'
 import { useCallback } from 'react'
 import { toast } from 'sonner'
@@ -94,7 +95,11 @@ export function useChecksPanelCreateReview(model: ChecksPanelCreateReviewInput) 
     setIsCreatingPr,
     updatePullRequestGenerationRecord
   } = model
-  const attachmentDraft = useGitHubDraft(prBody, model.setPrBody, panelContextKey)
+  const attachmentDraft = useGitHubDraft(
+    prBody,
+    model.setPrBody,
+    JSON.stringify([panelContextKey, repo ? githubAttachmentRepoSelection(repo, {}) : null])
+  )
   const handlePullRequestCreated = useChecksPanelCreatedReview(model)
 
   const createPullRequest = useCallback(
@@ -183,11 +188,11 @@ export function useChecksPanelCreateReview(model: ChecksPanelCreateReviewInput) 
             const result = stacked
               ? await createStackedHostedReview(repo.path, createInput, {
                   signal,
-                  update: attachmentDraft.change
+                  update: attachmentDraft.prepared
                 })
               : await createHostedReview(repo.path, createInput, {
                   signal,
-                  update: attachmentDraft.change
+                  update: attachmentDraft.prepared
                 })
             // Read before linking changes the panel context key.
             const panelShowsReview = model.mountedRef.current && isCurrentCreateRequest()

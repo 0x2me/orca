@@ -8,14 +8,16 @@ export const GITHUB_IMAGE_TYPES = [
   'image/svg+xml'
 ] as const
 
+export class GitHubImageValidationError extends Error {}
+
 export function assertGitHubImage(contentType: string, size: number): void {
   if (!GITHUB_IMAGE_TYPES.some((type) => type === contentType)) {
-    throw new Error(
+    throw new GitHubImageValidationError(
       'GitHub images must be PNG, JPEG, GIF, WebP, or SVG. Use an image URL for another format.'
     )
   }
   if (!size || size > GITHUB_IMAGE_MAX_BYTES) {
-    throw new Error(
+    throw new GitHubImageValidationError(
       'GitHub images must be nonempty and no larger than 10 MB. Choose a smaller image.'
     )
   }

@@ -1,3 +1,4 @@
+import { useGitHubRepoDraftKey } from '@/components/github/use-github-repo-draft-key'
 import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
 import { useGitHubDraft } from '@/components/github/use-github-draft'
 import React, { useCallback, useMemo, useState } from 'react'
@@ -150,16 +151,21 @@ export function ConversationTab({
       ? Boolean(projectOrigin || bodySlug)
       : Boolean(projectOrigin || canUseRepoMutationContext)
   const bodyChanged = resolvedBodyDraft !== body
+  const repoDraftKey = useGitHubRepoDraftKey({
+    repoId: repoId ?? item.repoId,
+    repoPath,
+    sourceContext
+  })
   const bodyController = useGitHubDraft(
     resolvedBodyDraft,
     setBodyDraft,
-    JSON.stringify([item.id, item.repoId, sourceContext, projectOrigin, bodyEditing])
+    JSON.stringify([item.id, item.repoId, sourceContext, projectOrigin, bodyEditing, repoDraftKey])
   )
 
   const handleSaveBody = useCallback(
     async (): Promise<void> =>
       bodyController.submit(async (currentBody, signal) => {
-        if (bodySaving || !bodyChanged) {
+        if (bodySaving || currentBody === body) {
           setBodyEditing(false)
           return
         }
@@ -170,7 +176,7 @@ export function ConversationTab({
             sourceContext,
             projectOrigin,
             body: currentBody,
-            preparation: { signal, update: bodyController.change },
+            preparation: { signal, update: bodyController.prepared },
             parsedSlug: bodySlug
           })
           onBodyUpdated(bodyController.value)
@@ -194,7 +200,7 @@ export function ConversationTab({
       }, setBodySaving),
     [
       bodyController,
-      bodyChanged,
+      body,
       bodySaving,
       bodySlug,
       item,
@@ -245,9 +251,10 @@ export function ConversationTab({
             body: buildPRCommentConversationReplyBody(comment.author, replyBody),
             preparation: {
               ...preparation,
-              update: (body) =>
+              update: (body, image) =>
                 preparation.update(
-                  body.slice(buildPRCommentConversationReplyBody(comment.author, '').length)
+                  body.slice(buildPRCommentConversationReplyBody(comment.author, '').length),
+                  image
                 )
             },
             type: item.type,

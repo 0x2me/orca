@@ -40,6 +40,7 @@ export const HostedReviewCreationEligibility = z.object({
 })
 
 export const HostedReviewCreate = z.object({
+  attachmentPreparationId: z.string().min(1).optional(),
   repo: requiredString('Missing repo selector'),
   worktree: z.string().min(1, 'Missing worktree selector').optional(),
   // Keep provider open: clients echo a newer host’s eligibility token; the handler refuses unsupported providers.

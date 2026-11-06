@@ -1,8 +1,5 @@
 import { useGitHubDraft } from '@/components/github/use-github-draft'
-import {
-  prepareGitHubImages,
-  captureGitHubImageContext
-} from '@/components/github/prepare-github-images'
+import { prepareGitHubImages, gitHubImageContext } from '@/components/github/prepare-github-images'
 import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
 import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
 import React, { useState } from 'react'
@@ -49,6 +46,7 @@ export function CommentsList({
             key={c.id}
             owner={owner}
             repo={repo}
+            host={host}
             comment={c}
             sourceTarget={sourceTarget}
             onDelete={async () => {
@@ -66,7 +64,7 @@ export function CommentsList({
               onChange(comments.filter((x) => x.id !== c.id))
             }}
             onEdit={async (next, preparation) => {
-              const imageContext = await captureGitHubImageContext({
+              const imageContext = gitHubImageContext({
                 runtime: sourceTarget,
                 target: { kind: 'slug', owner, repo, host }
               })
@@ -75,10 +73,13 @@ export function CommentsList({
                 ...preparation,
                 context: imageContext
               })
-              preparation.signal.throwIfAborted()
+              if (imageContext.attachmentPreparationId) {
+                preparation.signal.throwIfAborted()
+              }
               const res = await gitHubSlugApiForTarget(
                 imageContext.runtime,
-                imageContext.rpcOptions
+                imageContext.rpcOptions,
+                imageContext.attachmentPreparationId
               ).updateIssueCommentBySlug({
                 owner,
                 repo,
@@ -103,6 +104,9 @@ export function CommentsList({
 }
 
 function CommentRow({
+  owner,
+  repo,
+  host,
   comment,
   sourceTarget,
   onDelete,
@@ -110,6 +114,7 @@ function CommentRow({
 }: {
   owner: string
   repo: string
+  host?: string
   comment: PRComment
   sourceTarget: RuntimeClientTarget
   onDelete: () => void | Promise<void>
@@ -121,7 +126,7 @@ function CommentRow({
   const controller = useGitHubDraft(
     draft,
     setDraft,
-    JSON.stringify([comment.id, editing, sourceTarget])
+    JSON.stringify([owner, repo, host, comment.id, editing, sourceTarget])
   )
   return (
     <div className="rounded border border-border/50 bg-muted/20 p-3">
@@ -158,7 +163,7 @@ function CommentRow({
               disabled={saving}
               onClick={() =>
                 void controller.submit(async (body, signal) => {
-                  if (await onEdit(body, { signal, update: controller.change })) {
+                  if (await onEdit(body, { signal, update: controller.prepared })) {
                     setEditing(false)
                   }
                 }, setSaving)
@@ -236,20 +241,23 @@ export function NewCommentForm({
                 return
               }
               try {
-                const imageContext = await captureGitHubImageContext({
+                const imageContext = gitHubImageContext({
                   runtime: sourceTarget,
                   target: { kind: 'slug', owner, repo, host }
                 })
                 const body = await prepareGitHubImages({
                   body: bodyState.body,
                   signal,
-                  update: controller.change,
+                  update: controller.prepared,
                   context: imageContext
                 })
-                signal.throwIfAborted()
+                if (imageContext.attachmentPreparationId) {
+                  signal.throwIfAborted()
+                }
                 const res = await gitHubSlugApiForTarget(
                   imageContext.runtime,
-                  imageContext.rpcOptions
+                  imageContext.rpcOptions,
+                  imageContext.attachmentPreparationId
                 ).addIssueCommentBySlug({
                   owner,
                   repo,

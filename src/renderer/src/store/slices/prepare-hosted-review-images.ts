@@ -1,5 +1,5 @@
 import {
-  captureGitHubImageContext,
+  gitHubImageContext,
   prepareGitHubImages,
   type GitHubImageUploadContext
 } from '@/components/github/prepare-github-images'
@@ -25,9 +25,11 @@ export async function prepareHostedReviewImages<T extends CreateHostedReviewStor
     }
   }
   if (input.provider === 'github' && preparation) {
-    context = await captureGitHubImageContext(context)
+    context = gitHubImageContext(context)
     const body = await prepareGitHubImages({ body: input.body ?? '', ...preparation, context })
-    preparation.signal.throwIfAborted()
+    if (context.attachmentPreparationId) {
+      preparation.signal.throwIfAborted()
+    }
     input = { ...input, body }
   }
   return { input, context }

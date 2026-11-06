@@ -1,3 +1,5 @@
+import { hasGitHubAttachmentExecution } from '../../github/attachment-publication-execution'
+import { getWorktreeSharedLinkPaths } from '../../git/worktrees/content-paths/worktree-shared-directories'
 import {
   admitStructuredSessionTabPublication,
   projectStructuredSessionTab,
@@ -7,7 +9,7 @@ import {
 import type { OrcaRuntimeWithScheduleMobileSessionTabsChanged as ScheduleMobileSessionTabsChangedMethods } from './session-tabs-change-publication'
 import { OrcaRuntimeWithGetStructuredAgentSessionCreateSupport } from './structured-session-create-support'
 import { getStructuredAgentSessionHost } from '../../native-chat/agent-session-wire/structured-agent-session-registry'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID, getRepoSshConnectionId } from '../../../shared/execution-host'
 import { restoredChatTabChanges } from './restored-chat-tab-changes'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../shared/layout-owner-switch'
 import type { RuntimeRepoSearchRefs } from '../../../shared/runtime-types'
@@ -195,14 +197,24 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
     repo: Repo,
     admissionTier?: GitAdmissionTier
   ):
-    | { localGitExecOptions: LocalProjectGhExecOptions & { admissionTier?: GitAdmissionTier } }
+    | {
+        localGitExecOptions: LocalProjectGhExecOptions & { admissionTier?: GitAdmissionTier }
+        sharedLinkPaths?: string[]
+      }
     | undefined {
     const localGitOptions = {
       ...this.getLocalGitExecutionOptionArgs(repo)[0],
       ...(admissionTier && { admissionTier })
     }
-    return Object.keys(localGitOptions).length > 0
-      ? { localGitExecOptions: localGitOptions }
+    const sharedLinkPaths =
+      hasGitHubAttachmentExecution() && !getRepoSshConnectionId(repo)
+        ? getWorktreeSharedLinkPaths(repo)
+        : []
+    return Object.keys(localGitOptions).length > 0 || sharedLinkPaths.length > 0
+      ? {
+          localGitExecOptions: localGitOptions,
+          ...(sharedLinkPaths.length > 0 ? { sharedLinkPaths } : {})
+        }
       : undefined
   }
 

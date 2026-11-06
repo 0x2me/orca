@@ -1,3 +1,4 @@
+import { preparedGitHubExecution } from './attachment-publication-execution'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import { hostedReviewSshConnectionId } from '../source-control/hosted-review-execution-host'
 import type {
@@ -112,11 +113,14 @@ export async function prepareGitHubStackedPullRequest(
   // `gh` runs on this client whatever the host; only the git reads under it are routed.
   const connectionId = hostedReviewSshConnectionId(executionHostId)
   const context = githubRepoContext(repoPath, connectionId, getHostedReviewLocalGitOptions(options))
-  const repository = await getOriginGitHubApiRepository(
-    repoPath,
-    connectionId,
-    getHostedReviewLocalGitOptions(options)
-  )
+  const repository =
+    preparedGitHubExecution(repoPath, connectionId, getHostedReviewLocalGitOptions(options))
+      ?.ownerRepo ??
+    (await getOriginGitHubApiRepository(
+      repoPath,
+      connectionId,
+      getHostedReviewLocalGitOptions(options)
+    ))
   if (!repository || !isDefaultGitHubHost(repository.host)) {
     return stackedReviewFailure('stack_github_com_only')
   }

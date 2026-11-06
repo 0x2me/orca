@@ -1,3 +1,4 @@
+import { githubAttachmentRepoSelection } from '../../../../../../shared/github/attachment-repo-selection'
 import type { CreatePrIntentReviewInput } from './create-pr-intent-review-input'
 import { useGitHubDraft } from '@/components/github/use-github-draft'
 import { getRepoExecutionHostId } from '../../../../../../shared/execution-host'
@@ -50,7 +51,10 @@ export function useSourceControlCreatePrIntentReview({
   const attachmentDraft = useGitHubDraft(
     prBody,
     (body) => setPrBody?.(body),
-    JSON.stringify([activeRepo?.id, activeRepo?.ghAccount, createPrIntentCurrentTargetRef.current])
+    JSON.stringify([
+      activeRepo ? githubAttachmentRepoSelection(activeRepo, {}) : null,
+      createPrIntentCurrentTargetRef.current
+    ])
   )
   const attachmentSignal = attachmentDraft.signal
   const createHostedReviewForCreatePrIntent = useCallback(
@@ -155,10 +159,9 @@ export function useSourceControlCreatePrIntentReview({
         }
       }
 
-      if (
-        !createPrIntentRunStillOwnsWorktree(token) ||
-        createPrIntentActiveTargetConflicts(token)
-      ) {
+      const ownsRun = (): boolean =>
+        createPrIntentRunStillOwnsWorktree(token) && !createPrIntentActiveTargetConflicts(token)
+      if (!ownsRun()) {
         return false
       }
       const createPrIntentIsForeground = (): boolean =>
@@ -202,15 +205,12 @@ export function useSourceControlCreatePrIntentReview({
           },
           {
             signal: attachmentSignal,
-            update: (body) => {
-              if (
-                !createPrIntentRunStillOwnsWorktree(token) ||
-                createPrIntentActiveTargetConflicts(token)
-              ) {
+            update: (body, image) => {
+              if (!ownsRun()) {
                 throw new Error('The review target changed. Try again.')
               }
               fields = { ...fields, body }
-              attachmentDraft.change(body)
+              attachmentDraft.prepared(body, image)
             }
           }
         )

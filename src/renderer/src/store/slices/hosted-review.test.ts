@@ -9,7 +9,11 @@ import type { HostedReviewInfo } from '../../../../shared/source-control/hosted-
 import '../../../../shared/constants'
 
 const runtimeRpc = vi.hoisted(() => ({
-  callRuntimeRpc: vi.fn()
+  callRuntimeRpc: vi.fn(),
+  attachment: vi.fn()
+}))
+vi.mock('@/runtime/github-attachment-rpc', () => ({
+  callGitHubAttachmentRpc: runtimeRpc.attachment
 }))
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: runtimeRpc.callRuntimeRpc }))
@@ -208,4 +212,115 @@ describe('hosted review slice', () => {
       consoleError.mockRestore()
     }
   })
+})
+
+// A click-owned text run may outlive its composer during push or navigation.
+it.each(['createHostedReview', 'createStackedHostedReview'] as const)(
+  'keeps the ordinary IPC path for an accepted text-only %s after its image owner is invalidated',
+  async (method) => {
+    const store = makeStore()
+    const controller = new AbortController()
+    controller.abort()
+    const update = vi.fn()
+    const result = {
+      ok: true as const,
+      provider: 'github' as const,
+      number: 42,
+      url: 'https://github.com/owner/repo/pull/42'
+    }
+    const api =
+      method === 'createHostedReview'
+        ? mockApi.hostedReview.create
+        : mockApi.hostedReview.createStacked
+    api.mockResolvedValueOnce(result)
+    await expect(
+      store.getState()[method](
+        '/repo',
+        {
+          provider: 'github',
+          title: 'Text',
+          body: '![URL](https://example.com/image.png)',
+          base: 'main',
+          head: 'feature'
+        },
+        { signal: controller.signal, update }
+      )
+    ).resolves.toEqual(result)
+    expect(api).toHaveBeenCalledWith(
+      expect.objectContaining({ body: '![URL](https://example.com/image.png)' })
+    )
+    expect(runtimeRpc.callRuntimeRpc).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  }
+)
+
+it('gives image preparation its own budget before dispatching the normal final PR write', async () => {
+  vi.useFakeTimers()
+  const store = makeStore()
+  const upload = Promise.withResolvers<{ url: string; preparationId: string }>()
+  runtimeRpc.attachment.mockImplementation(async (_runtime, method) => {
+    if (method === 'status.get') {
+      return { capabilities: ['github.image-attachments.v1'] }
+    }
+    if (method === 'repo.show') {
+      return {
+        githubAttachmentSelection: {
+          id: 'repo-1',
+          path: '/repo',
+          issueSourcePreference: 'auto',
+          connectionId: null,
+          executionHostId: null,
+          wslDistro: null,
+          ghAccount: null
+        }
+      }
+    }
+    if (method === 'clipboard.startImageUpload') {
+      return { uploadId: 'image' }
+    }
+    if (method === 'github.uploadAttachment') {
+      return upload.promise
+    }
+    return {}
+  })
+  runtimeRpc.callRuntimeRpc.mockResolvedValueOnce({
+    ok: true,
+    number: 42,
+    url: 'https://github.com/owner/repo/pull/42'
+  })
+  const update = vi.fn()
+  const result = store.getState().createHostedReview(
+    '/repo',
+    {
+      provider: 'github',
+      title: 'Image',
+      body: '![image](data:image/png;base64,AA==)',
+      base: 'main',
+      head: 'feature'
+    },
+    { signal: new AbortController().signal, update }
+  )
+  await vi.advanceTimersByTimeAsync(45_000)
+  expect(runtimeRpc.callRuntimeRpc).not.toHaveBeenCalled()
+  upload.resolve({
+    url: 'https://github.com/user-attachments/assets/image',
+    preparationId: 'prepared'
+  })
+  await expect(result).resolves.toMatchObject({ ok: true, number: 42 })
+  expect(update).toHaveBeenCalledWith(
+    '![image](https://github.com/user-attachments/assets/image)',
+    {
+      source: 'data:image/png;base64,AA==',
+      url: 'https://github.com/user-attachments/assets/image'
+    }
+  )
+  expect(runtimeRpc.callRuntimeRpc).toHaveBeenCalledWith(
+    { kind: 'local' },
+    'hostedReview.create',
+    expect.objectContaining({
+      attachmentPreparationId: 'prepared',
+      body: '![image](https://github.com/user-attachments/assets/image)'
+    }),
+    expect.objectContaining({ timeoutMs: 60_000 })
+  )
 })

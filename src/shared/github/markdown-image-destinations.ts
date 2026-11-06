@@ -1,63 +1,91 @@
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
-import type { Nodes } from 'mdast'
-import { fromHtmlIsomorphic } from 'hast-util-from-html-isomorphic'
+import type { Nodes, Data } from 'mdast'
+import type { Extension } from 'mdast-util-from-markdown'
+import { htmlImageDestinations } from './html-image-destinations'
 
 export type MarkdownImageDestination = { source: string; start: number; end: number }
-const parser = unified().use(remarkParse).use(remarkGfm)
-
-function destinationRange(text: string, offset: number): { start: number; end: number } | null {
-  let start = offset
-  while (/\s/.test(text[start] ?? '') && start < text.length) {
-    start++
+type ImageRangeData = Data & { imageDestination?: { start: number; end: number } }
+const captureDestination: NonNullable<Extension['exit']>[string] = function (token) {
+  const url = this.resume()
+  const node = this.stack.at(-1)
+  if (node?.type === 'image' || node?.type === 'link' || node?.type === 'definition') {
+    node.url = url
+    node.data ??= {}
+    const data: ImageRangeData = node.data
+    data.imageDestination = { start: token.start.offset, end: token.end.offset }
   }
-  if (text[start] === '<') {
-    const end = text.indexOf('>', start + 1)
-    return end === -1 ? null : { start: start + 1, end }
-  }
-  let end = start
-  let depth = 0
-  for (; end < text.length; end++) {
-    const char = text[end]
-    if (char === '\\') {
-      end++
-      continue
-    }
-    if (char === '(') {
-      depth++
-    }
-    if (char === ')') {
-      if (depth === 0) {
-        break
+}
+const parser = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(function () {
+    this.data('fromMarkdownExtensions', [
+      ...(this.data('fromMarkdownExtensions') ?? []),
+      {
+        exit: {
+          resourceDestinationString: captureDestination,
+          definitionDestinationString: captureDestination
+        }
       }
-      depth--
-    }
-    if (/\s/.test(char)) {
-      break
-    }
+    ])
+  })
+
+function htmlNodeDestinations(
+  markdown: string,
+  node: Extract<Nodes, { type: 'html' }>
+): MarkdownImageDestination[] {
+  const start = node.position?.start.offset
+  const end = node.position?.end.offset
+  const images = htmlImageDestinations(node.value, 0).images
+  if (!images.length) {
+    return images
   }
-  return { start, end }
+  if (start === undefined || end === undefined) {
+    return images.map((image) => ({ ...image, start: -1, end: -1 }))
+  }
+  if (markdown.slice(start, end) === node.value) {
+    return images.map((image) => ({ ...image, start: start + image.start, end: start + image.end }))
+  }
+  // Markdown containers remove line prefixes from HTML values; match each line back to its source.
+  const lines: { valueStart: number; valueEnd: number; sourceStart: number }[] = []
+  let valueStart = 0
+  let sourceStart = start
+  while (valueStart < node.value.length && sourceStart < end) {
+    const valueBreak = node.value.indexOf('\n', valueStart)
+    const valueEnd = valueBreak === -1 ? node.value.length : valueBreak
+    const sourceBreak = markdown.indexOf('\n', sourceStart)
+    const sourceEnd = sourceBreak === -1 ? end : Math.min(end, sourceBreak)
+    const valueLine = node.value.slice(valueStart, valueEnd).replace(/\r$/, '')
+    const sourceLine = markdown.slice(sourceStart, sourceEnd).replace(/\r$/, '')
+    lines.push({
+      valueStart,
+      valueEnd,
+      sourceStart: sourceLine.endsWith(valueLine)
+        ? sourceStart + sourceLine.length - valueLine.length
+        : -1
+    })
+    valueStart = valueEnd + 1
+    sourceStart = sourceEnd + 1
+  }
+  let lineIndex = 0
+  return images.map((image) => {
+    while (lineIndex + 1 < lines.length && lines[lineIndex].valueEnd < image.start) {
+      lineIndex++
+    }
+    const line = lines[lineIndex]
+    return !line || line.sourceStart < 0 || image.end > line.valueEnd
+      ? { ...image, start: -1, end: -1 }
+      : {
+          ...image,
+          start: line.sourceStart + image.start - line.valueStart,
+          end: line.sourceStart + image.end - line.valueStart
+        }
+  })
 }
 
-function destinationOpening(text: string, image: boolean): number {
-  let depth = 1
-  for (let index = image ? 2 : 1; index < text.length; index++) {
-    if (text[index] === '\\') {
-      index++
-      continue
-    }
-    if (text[index] === '[') {
-      depth++
-    }
-    if (text[index] === ']' && --depth === 0) {
-      return text[index + 1] === (image ? '(' : ':') ? index + 2 : -1
-    }
-  }
-  return -1
-}
-
-/** Keep source positions: serializing Markdown would rewrite unrelated draft text. */
+/** Keep parser destination positions so replacements preserve all unrelated draft text. */
 export function markdownImageDestinations(markdown: string): MarkdownImageDestination[] {
   const tree = parser.parse(markdown)
   const references = new Set<string>()
@@ -77,71 +105,13 @@ export function markdownImageDestinations(markdown: string): MarkdownImageDestin
           references.has(node.identifier) &&
           definitions.get(node.identifier) === node))
     ) {
-      const base = node.position?.start.offset
-      const end = node.position?.end.offset
-      if (base !== undefined && end !== undefined) {
-        const text = markdown.slice(base, end)
-        // The AST already establishes that this span is an image/definition, not code.
-        const opening = destinationOpening(text, node.type === 'image')
-        const range = destinationRange(text, opening)
-        if (opening > 1 && range) {
-          images.push({ source: node.url, start: base + range.start, end: base + range.end })
-        }
-      }
+      const data: ImageRangeData | undefined = node.data
+      const range = data?.imageDestination
+      // Missing positions must never hide a rendered unresolved image from the writer validator.
+      images.push({ source: node.url, start: range?.start ?? -1, end: range?.end ?? -1 })
     }
     if (collect && node.type === 'html') {
-      const base = node.position?.start.offset
-      if (base !== undefined) {
-        // Browser HTML parsers omit positions; tokenize tags in the AST's eligible HTML span.
-        const tags =
-          /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<\?[\s\S]*?\?>|<\/?([a-z][a-z0-9-]*)(?:\s+(?:[^"'<>]|"[^"]*"|'[^']*')*)?\s*\/?>/gi
-        let rawText: string | null = null
-        for (const token of node.value.matchAll(tags)) {
-          const name = token[1]?.toLowerCase()
-          const tag = token[0]
-          if (!name) {
-            continue
-          }
-          if (rawText) {
-            if (tag.startsWith('</') && name === rawText) {
-              rawText = null
-            }
-            continue
-          }
-          if (/^(script|style|textarea|title)$/.test(name) && !tag.startsWith('</')) {
-            rawText = name
-            continue
-          }
-          if (name !== 'img' || tag.startsWith('</')) {
-            continue
-          }
-          const element = fromHtmlIsomorphic(tag, { fragment: true }).children.find(
-            (child) => child.type === 'element' && child.tagName === 'img'
-          )
-          if (!element || element.type !== 'element') {
-            continue
-          }
-          const attrs = /\s+([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g
-          for (const match of tag.matchAll(attrs)) {
-            if (
-              match[1].toLowerCase() !== 'src' ||
-              (match[2] === undefined && match[3] === undefined && match[4] === undefined)
-            ) {
-              continue
-            }
-            const raw = match[2] ?? match[3] ?? match[4]
-            const valueOffset = match.index + match[0].indexOf('=') + 1
-            const afterEquals = tag.slice(valueOffset).match(/^\s*["']?/)?.[0].length ?? 0
-            const start = base + token.index + valueOffset + afterEquals
-            images.push({
-              source: String(element.properties.src ?? ''),
-              start,
-              end: start + raw.length
-            })
-            break
-          }
-        }
-      }
+      images.push(...htmlNodeDestinations(markdown, node))
     }
     if ('children' in node) {
       node.children.forEach((child) => walk(child, collect))
@@ -164,10 +134,32 @@ export function gitHubBodyImageError(body: string | undefined): string | null {
     : null
 }
 
-export function replaceMarkdownImageSource(body: string, source: string, url: string): string {
-  const destinations = markdownImageDestinations(body).filter((image) => image.source === source)
-  for (const image of destinations.toReversed()) {
-    body = body.slice(0, image.start) + url + body.slice(image.end)
+export function replaceMarkdownImageDestinations(
+  body: string,
+  destinations: MarkdownImageDestination[],
+  replacements: ReadonlyMap<string, string>
+): string {
+  const parts: string[] = []
+  let offset = 0
+  for (const image of destinations) {
+    const replacement = replacements.get(image.source)
+    if (replacement === undefined) {
+      continue
+    }
+    if (image.start < offset || image.end < image.start || image.end > body.length) {
+      throw new Error('This image cannot be replaced safely. Paste it again, or use an image URL.')
+    }
+    parts.push(body.slice(offset, image.start), replacement)
+    offset = image.end
   }
-  return body
+  parts.push(body.slice(offset))
+  return parts.join('')
+}
+
+export function replaceMarkdownImageSource(body: string, source: string, url: string): string {
+  return replaceMarkdownImageDestinations(
+    body,
+    markdownImageDestinations(body),
+    new Map([[source, url]])
+  )
 }

@@ -1,3 +1,4 @@
+import { preparedGitHubExecution } from '../../attachment-publication-execution'
 import { gitHubBodyImageError } from '../../../../shared/github/markdown-image-destinations'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
 import { hostedReviewSshConnectionId } from '../../../source-control/hosted-review-execution-host'
@@ -56,11 +57,14 @@ export async function createGitHubPullRequest(
     getHostedReviewLocalGitOptions(options),
     async () => {
       // The unqualified head branch belongs to origin; retain its resolved host.
-      const ownerRepo = await getOriginGitHubApiRepository(
-        repoPath,
-        connectionId,
-        getHostedReviewLocalGitOptions(options)
-      )
+      const ownerRepo =
+        preparedGitHubExecution(repoPath, connectionId, getHostedReviewLocalGitOptions(options))
+          ?.ownerRepo ??
+        (await getOriginGitHubApiRepository(
+          repoPath,
+          connectionId,
+          getHostedReviewLocalGitOptions(options)
+        ))
       if (!ownerRepo) {
         return {
           ok: false,

@@ -1,3 +1,4 @@
+import { GitHubAttachmentRepoSelection } from '../../../../shared/github/attachment-repo-selection'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
 import type { GitHubOwnerRepo } from '../../../../shared/github/pull-request-types'
 import {
@@ -19,7 +20,7 @@ import { isValidBase64 } from '../../../../shared/rpc-contract/clipboard-params'
 import {
   markdownImageDestinations,
   isUnresolvedGitHubImage,
-  replaceMarkdownImageSource
+  replaceMarkdownImageDestinations
 } from '../../../../shared/github/markdown-image-destinations'
 import { REMOTE_RUNTIME_MAX_INBOUND_REQUEST_JSON_BYTES } from '../../../../shared/remote-runtime/remote-runtime-memory-limits'
 import { completeClipboardImageUpload } from '@/lib/clipboard-image-chunks'
@@ -28,7 +29,12 @@ import { callGitHubAttachmentRpc } from '@/runtime/github-attachment-rpc'
 export type GitHubImageUploadContext = {
   runtime: RuntimeClientTarget
   target: GitHubAttachmentTarget
+  attachmentPreparationId?: string
   rpcOptions?: Parameters<typeof callRuntimeRpc>[3]
+}
+
+export function gitHubImageContext(context: GitHubImageUploadContext): GitHubImageUploadContext {
+  return context
 }
 
 export async function captureGitHubImageContext(
@@ -87,7 +93,7 @@ export async function captureGitHubRepoImageContext(
   source: 'issue' | 'origin'
 ): Promise<GitHubImageUploadContext> {
   const host = getGitHubSourceRuntimeHost(args.sourceContext)
-  return captureGitHubImageContext({
+  return gitHubImageContext({
     runtime: host ? { kind: 'environment', environmentId: host.environmentId } : { kind: 'local' },
     target: {
       kind: 'repo',
@@ -127,20 +133,28 @@ export function assertGitHubBodyFitsTransport(body: string): void {
 
 export async function prepareGitHubImages(args: {
   body: string
+  destinations?: ReturnType<typeof markdownImageDestinations>
   context: GitHubImageUploadContext
-  update: (body: string) => void
+  update: (body: string, image?: { source: string; url: string }) => void
   signal: AbortSignal
 }): Promise<string> {
   let body = args.body
+  const destinations = args.destinations ?? markdownImageDestinations(body)
+  const replacements = new Map<string, string>()
   const sources = [
-    ...new Set(
-      markdownImageDestinations(body)
-        .map((image) => image.source)
-        .filter(isUnresolvedGitHubImage)
-    )
+    ...new Set(destinations.map((image) => image.source).filter(isUnresolvedGitHubImage))
   ]
-  for (const source of sources) {
-    imageData(source)
+  args.context.attachmentPreparationId = undefined
+  if (!sources.length) {
+    return body
+  }
+  args.signal.throwIfAborted()
+  const captured = await captureGitHubImageContext(args.context)
+  args.context.runtime = captured.runtime
+  args.context.rpcOptions = captured.rpcOptions
+  const images = new Map(sources.map((source) => [source, imageData(source)]))
+  if (destinations.some((image) => isUnresolvedGitHubImage(image.source) && image.start < 0)) {
+    throw new Error('This image cannot be replaced safely. Paste it again, or use an image URL.')
   }
   if (sources.length) {
     const statusSignal = AbortSignal.any([args.signal, AbortSignal.timeout(30_000)])
@@ -161,9 +175,32 @@ export async function prepareGitHubImages(args: {
       )
     }
   }
+  if (args.context.target.kind === 'repo') {
+    const result = await callGitHubAttachmentRpc<{ githubAttachmentSelection?: unknown }>(
+      args.context.runtime,
+      'repo.show',
+      { repo: args.context.target.repo, includeGitHubAttachmentSelection: true },
+      args.signal,
+      30_000,
+      args.context.rpcOptions
+    )
+    const selection = GitHubAttachmentRepoSelection.safeParse(result.githubAttachmentSelection)
+    if (!selection.success) {
+      throw new Error(
+        'The Orca server could not prepare this image destination. Your draft is kept; reconnect and try again.'
+      )
+    }
+    args.context.target = {
+      ...args.context.target,
+      expectedRepoSelection: selection.data,
+      expectedGhAccount: selection.data.ghAccount
+    }
+  } else if (args.context.runtime.kind === 'local') {
+    args.context.target = { ...args.context.target, wakeWslDistro: true }
+  }
   for (const source of sources) {
     args.signal.throwIfAborted()
-    const image = imageData(source)
+    const image = images.get(source)!
     const stagingDeadline = Date.now() + 120_000
     const stagingSignal = AbortSignal.any([args.signal, AbortSignal.timeout(120_000)])
     const stage = <T>(method: string, params: unknown): Promise<T> =>
@@ -181,11 +218,12 @@ export async function prepareGitHubImages(args: {
     })
     const result = await completeClipboardImageUpload(image.base64, uploadId, stage, async () => {
       const signal = AbortSignal.any([args.signal, AbortSignal.timeout(135_000)])
-      return callGitHubAttachmentRpc<{ url: string }>(
+      return callGitHubAttachmentRpc<{ url: string; preparationId: string }>(
         args.context.runtime,
         'github.uploadAttachment',
         {
           uploadId,
+          preparationId: args.context.attachmentPreparationId,
           target: args.context.target,
           contentType: image.contentType,
           fileName: image.fileName
@@ -208,8 +246,15 @@ export async function prepareGitHubImages(args: {
     })
     args.signal.throwIfAborted()
     args.context.rpcOptions?.beforeSend?.()
-    body = replaceMarkdownImageSource(body, source, result.url)
-    args.update(body)
+    if (typeof result.preparationId !== 'string' || !result.preparationId) {
+      throw new Error(
+        'The Orca server could not retain this image submission. Your draft is kept; try again.'
+      )
+    }
+    args.context.attachmentPreparationId = result.preparationId
+    replacements.set(source, result.url)
+    body = replaceMarkdownImageDestinations(args.body, destinations, replacements)
+    args.update(body, { source, url: result.url })
   }
   args.context.rpcOptions?.beforeSend?.()
   assertGitHubBodyFitsTransport(body)

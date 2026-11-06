@@ -1,3 +1,4 @@
+import * as imageDestinations from '../../../../shared/github/markdown-image-destinations'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { GitHubDraft } from './use-github-draft'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/runtime-environment-revision'
@@ -7,6 +8,15 @@ const { rpc, errorToast } = vi.hoisted(() => ({ rpc: vi.fn(), errorToast: vi.fn(
 vi.mock('@/runtime/github-attachment-rpc', () => ({ callGitHubAttachmentRpc: rpc }))
 vi.mock('sonner', () => ({ toast: { error: errorToast } }))
 
+const repoSelection = {
+  id: 'repo',
+  path: '/folder-workspace',
+  issueSourcePreference: 'auto',
+  connectionId: null,
+  executionHostId: null,
+  wslDistro: null,
+  ghAccount: null
+}
 const context = {
   runtime: { kind: 'local' as const },
   target: { kind: 'repo' as const, repo: 'repo', source: 'issue' as const }
@@ -30,11 +40,14 @@ describe('GitHub image submission', () => {
       if (method === 'status.get') {
         return { capabilities: ['github.image-attachments.v1'] }
       }
+      if (method === 'repo.show') {
+        return { githubAttachmentSelection: repoSelection }
+      }
       if (method === 'clipboard.startImageUpload') {
         return { uploadId: 'upload' }
       }
       if (method === 'github.uploadAttachment') {
-        return { url: 'https://github.com/user-attachments/assets/a' }
+        return { url: 'https://github.com/user-attachments/assets/a', preparationId: 'prepared' }
       }
       return {}
     })
@@ -54,6 +67,9 @@ describe('GitHub image submission', () => {
       if (method === 'status.get') {
         return { capabilities: ['github.image-attachments.v1'] }
       }
+      if (method === 'repo.show') {
+        return { githubAttachmentSelection: repoSelection }
+      }
       if (method === 'clipboard.startImageUpload') {
         return { uploadId: 'upload' }
       }
@@ -63,6 +79,7 @@ describe('GitHub image submission', () => {
           throw new Error('GitHub unavailable')
         }
         return {
+          preparationId: 'prepared',
           url:
             uploads === 1
               ? 'https://github.com/user-attachments/assets/a'
@@ -182,12 +199,18 @@ describe('GitHub image submission', () => {
       if (method === 'status.get') {
         return { runtimeId: 'original', capabilities: ['github.image-attachments.v1'] }
       }
+      if (method === 'repo.show') {
+        return { githubAttachmentSelection: repoSelection }
+      }
       if (method === 'clipboard.startImageUpload') {
         return { uploadId: 'upload' }
       }
       if (method === 'github.uploadAttachment') {
         replaceRuntimeEnvironmentRevisions([{ id: 'image-host', createdAt: 2, pairingRevision: 2 }])
-        return { url: 'https://github.com/user-attachments/assets/old-host' }
+        return {
+          url: 'https://github.com/user-attachments/assets/old-host',
+          preparationId: 'prepared'
+        }
       }
       return {}
     })
@@ -213,6 +236,7 @@ describe('GitHub image submission', () => {
         (_, index) => `![image](data:image/png;base64,${Buffer.from([index]).toString('base64')})`
       )
       const body = images.concat(images, images).join('\n')
+      const parse = vi.spyOn(imageDestinations, 'markdownImageDestinations')
       const ready = await prepareGitHubImages({
         body,
         context,
@@ -222,6 +246,9 @@ describe('GitHub image submission', () => {
       expect(rpc.mock.calls.filter((call) => call[1] === 'github.uploadAttachment')).toHaveLength(
         count
       )
+      // The output needs one source scan, not another AST for every uploaded asset.
+      expect(parse).toHaveBeenCalledTimes(1)
+      parse.mockRestore()
       expect(ready).not.toContain('data:')
       expect(ready.match(/https:\/\/github.com\/user-attachments\/assets\/a/g)).toHaveLength(
         count * 3
@@ -240,5 +267,20 @@ describe('GitHub image submission', () => {
       })
     ).rejects.toThrow('Update it')
     expect(rpc.mock.calls.map((call) => call[1])).toEqual(['status.get'])
+  })
+
+  it('allows the first corrected submit after an already reported read failure', async () => {
+    const draft = new GitHubDraft('', () => {}, 'repo')
+    draft.read(async () => {
+      throw new Error('Unsupported image')
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(errorToast).toHaveBeenCalledWith('Unsupported image')
+    draft.change('Corrected comment')
+    const publish = vi.fn()
+    await draft.submit(publish, () => {})
+    expect(publish).toHaveBeenCalledWith('Corrected comment', expect.any(AbortSignal))
+    expect(errorToast).toHaveBeenCalledTimes(1)
   })
 })

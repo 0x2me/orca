@@ -7,7 +7,8 @@ type SenderState = {
   subscriptions: Map<string, AbortController>
 }
 
-type CleanupRuntime = Pick<OrcaRuntimeService, 'cleanupSubscriptionsForConnection'>
+type CleanupRuntime = Pick<OrcaRuntimeService, 'cleanupSubscriptionsForConnection'> &
+  Partial<Pick<OrcaRuntimeService, 'retireGitHubAttachmentsForConnection'>>
 
 export class DesktopRuntimeSenderLifecycle {
   private readonly senders = new Map<number, SenderState>()
@@ -64,6 +65,7 @@ export class DesktopRuntimeSenderLifecycle {
     }
     state.subscriptions.clear()
     this.runtime.cleanupSubscriptionsForConnection(retiredConnectionId)
+    this.runtime.retireGitHubAttachmentsForConnection?.(retiredConnectionId)
   }
 
   private mintConnectionId(senderId: number): string {

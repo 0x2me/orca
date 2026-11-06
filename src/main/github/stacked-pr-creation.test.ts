@@ -1,3 +1,5 @@
+import { withGitHubAttachmentExecution } from './attachment-publication-execution'
+import { createStackedHostedReview } from '../source-control/stacked-hosted-review-creation'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { ghExecFileAsyncMock, repositoryMock } = vi.hoisted(() => ({
@@ -17,6 +19,8 @@ vi.mock('./gh-utils', () => ({
     localGitOptions?: Record<string, unknown>
   ) => ({ repoPath, connectionId, localGitOptions })
 }))
+
+vi.mock('../source-control/hosted-review-creation', () => ({ createHostedReview: vi.fn() }))
 
 vi.mock('./github-api-repository', () => ({
   getOriginGitHubApiRepository: repositoryMock,
@@ -294,4 +298,46 @@ describe('registerGitHubStackedPullRequest', () => {
       createdReview: currentReview
     })
   })
+})
+
+it('keeps the checked attachment repository through stack registration when the current PR already exists', async () => {
+  repositoryMock.mockResolvedValue({ owner: 'changed', repo: 'elsewhere', host: 'github.com' })
+  ghExecFileAsyncMock
+    .mockResolvedValueOnce({ stdout: JSON.stringify([pullRequest(41, 'stack/parent', 'main')]) })
+    .mockResolvedValueOnce({
+      stdout: JSON.stringify([pullRequest(42, 'stack/child', 'stack/parent')])
+    })
+    .mockResolvedValueOnce({ stdout: '[]' })
+    .mockResolvedValueOnce({ stdout: '[]' })
+    .mockResolvedValueOnce({ stdout: '[]' })
+    .mockResolvedValueOnce({ stdout: '[]' })
+    .mockResolvedValueOnce({ stdout: '{"number":50}' })
+  const result = await withGitHubAttachmentExecution(
+    {
+      repoPath: '/repo',
+      connectionId: null,
+      wslDistro: null,
+      execution: { ownerRepo: repository, ghOptions: {} }
+    },
+    () =>
+      createStackedHostedReview(
+        '/repo',
+        {
+          provider: 'github',
+          base: 'stack/parent',
+          head: 'stack/child',
+          title: 'With image',
+          body: '![image](https://github.com/user-attachments/assets/image)'
+        },
+        'local'
+      )
+  )
+  expect(result).toMatchObject({ ok: true, number: 42, stackNumber: 50 })
+  expect(repositoryMock).not.toHaveBeenCalled()
+  expect(ghExecFileAsyncMock.mock.calls.at(-1)?.[0]).toContain('repos/acme/orca/stacks')
+  expect(
+    ghExecFileAsyncMock.mock.calls.some(([args]) =>
+      args.some((arg: string) => arg.includes('changed/elsewhere'))
+    )
+  ).toBe(false)
 })

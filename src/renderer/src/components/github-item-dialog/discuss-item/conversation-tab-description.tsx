@@ -73,7 +73,7 @@ export function ConversationTabDescription({
                 type="button"
                 size="xs"
                 className="gap-1.5"
-                disabled={bodySaving || !bodyChanged}
+                disabled={bodySaving || (!bodyChanged && !draft.hasPendingReads())}
                 onClick={() => void onSaveBody()}
               >
                 {bodySaving ? (

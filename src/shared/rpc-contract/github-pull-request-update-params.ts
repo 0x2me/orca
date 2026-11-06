@@ -9,6 +9,7 @@ export const UpdatePrTitle = RepoSelector.extend({
 })
 
 export const UpdatePr = RepoSelector.extend({
+  attachmentPreparationId: z.string().min(1).optional(),
   prNumber: z.number().int().positive(),
   updates: z.object({
     title: OptionalString,
@@ -61,6 +62,7 @@ export const RemovePrReviewers = RepoSelector.extend({
 })
 
 export const PRReviewComment = RepoSelector.extend({
+  attachmentPreparationId: z.string().min(1).optional(),
   prNumber: z.number().int().positive(),
   prRepo: SlugRepo.nullable().optional(),
   commitId: requiredString('Missing PR head SHA'),
@@ -71,6 +73,7 @@ export const PRReviewComment = RepoSelector.extend({
 })
 
 export const PRReviewCommentReply = RepoSelector.extend({
+  attachmentPreparationId: z.string().min(1).optional(),
   prNumber: z.number().int().positive(),
   commentId: z.number().int().positive(),
   body: requiredString('Comment body required'),

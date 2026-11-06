@@ -158,6 +158,7 @@ export function renderCommentCard(
         <CommentReactions reactions={comment.reactions} />
         {ctx.resolvedReplyingTo === comment.id && (
           <CommentReplyForm
+            repoContext={ctx}
             contextKey={JSON.stringify([
               ctx.repoId,
               ctx.repoPath,

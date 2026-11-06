@@ -1,3 +1,4 @@
+import { preparedGitHubExecution } from './attachment-publication-execution'
 import type { GhAccountBinding } from '../../shared/github/account-binding'
 import { withGitHubRepoExecution } from './github-repository-identity'
 import type { GitHubOwnerRepo } from '../../shared/github/pull-request-types'
@@ -231,6 +232,10 @@ export async function resolveGitHubRepoExecution(
   localGitOptions: LocalGitExecOptions = {},
   expectedGhAccount?: GhAccountBinding | null
 ): Promise<GitHubRepoExecution> {
+  const prepared = preparedGitHubExecution(repoPath, connectionId, localGitOptions)
+  if (prepared) {
+    return prepared
+  }
   return withGitHubRepoExecution(
     repoPath,
     connectionId,

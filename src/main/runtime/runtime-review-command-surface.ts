@@ -30,6 +30,10 @@ type GitHubReviewMutationName =
   | 'removeRepoPRReviewers'
 type GitHubIssueCommentName =
   | 'uploadGitHubAttachment'
+  | 'getGitHubAttachmentSelection'
+  | 'withGitHubAttachmentPreparation'
+  | 'disposeGitHubAttachments'
+  | 'retireGitHubAttachmentsForConnection'
   | 'createRepoIssue'
   | 'updateRepoIssue'
   | 'addRepoIssueComment'
@@ -105,6 +109,11 @@ export function installRuntimeReviewCommandSurface(
     removeRepoPRReviewers: ghm.removeRepoPRReviewers.bind(ghm),
     createRepoIssue: comments.createRepoIssue.bind(comments),
     uploadGitHubAttachment: comments.uploadGitHubAttachment.bind(comments),
+    getGitHubAttachmentSelection: comments.getGitHubAttachmentSelection.bind(comments),
+    withGitHubAttachmentPreparation: comments.withGitHubAttachmentPreparation.bind(comments),
+    disposeGitHubAttachments: comments.disposeGitHubAttachments.bind(comments),
+    retireGitHubAttachmentsForConnection:
+      comments.retireGitHubAttachmentsForConnection.bind(comments),
     updateRepoIssue: comments.updateRepoIssue.bind(comments),
     addRepoIssueComment: comments.addRepoIssueComment.bind(comments),
     addRepoPRReviewComment: comments.addRepoPRReviewComment.bind(comments),

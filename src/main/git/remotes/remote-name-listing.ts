@@ -81,18 +81,18 @@ export async function listCachedRemoteNames(
   if (connectionId) {
     return null
   }
-  if (localGitOptions.signal) {
-    return listUncachedRemoteNames(repoPath, localGitOptions)
-  }
+  githubOperationTimeout(localGitOptions)
   const cacheKey = remoteNameListingCacheKey(repoPath, localGitOptions)
   const now = Date.now()
   pruneRemoteNameListingCache(now)
   const cached = remoteNameListingCache.get(cacheKey)
   if (cached && cached.expiresAt > now) {
     if (cached.configSignature !== undefined) {
-      const currentSignature = await readLocalGitConfigSignature(
-        listingGitConfigContext(repoPath, localGitOptions)
-      )
+      const currentSignature = await readLocalGitConfigSignature({
+        ...listingGitConfigContext(repoPath, localGitOptions),
+        ...localGitOptions
+      })
+      githubOperationTimeout(localGitOptions)
       if (currentSignature === cached.configSignature) {
         return cached.remotes
       }
@@ -102,6 +102,9 @@ export async function listCachedRemoteNames(
     }
   }
 
+  if (localGitOptions.signal) {
+    return listUncachedRemoteNames(repoPath, localGitOptions)
+  }
   return runCoalescedProbe(remoteNameListingInFlight, cacheKey, async (ownsKey) => {
     const configContext = listingGitConfigContext(repoPath, localGitOptions)
     const configSignatureBefore = await readLocalGitConfigSignature(configContext)
@@ -145,6 +148,7 @@ async function listUncachedRemoteNames(
     })
     return parseRemoteNames(stdout)
   } catch {
+    localGitOptions.signal?.throwIfAborted()
     return null
   }
 }

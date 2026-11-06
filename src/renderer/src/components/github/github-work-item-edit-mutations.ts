@@ -1,4 +1,5 @@
-import { prepareGitHubImages, captureGitHubImageContext } from './prepare-github-images'
+import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { prepareGitHubImages, gitHubImageContext } from './prepare-github-images'
 import type { GitHubDraftPreparation } from './github-work-item-comment-mutations'
 import { getGitHubMutationTarget } from './github-work-item-mutation-target'
 export { getGitHubMutationTarget } from './github-work-item-mutation-target'
@@ -37,7 +38,7 @@ export async function runIssueUpdate(args: {
       args.sourceContext?.provider === 'github'
         ? taskSourceRuntimeTarget(args.sourceContext)
         : getGitHubMutationTarget(args.repoId, args.projectOrigin)
-    const imageContext = await captureGitHubImageContext({
+    const imageContext = gitHubImageContext({
       runtime: target,
       target: { kind: 'slug', ...issueRepo }
     })
@@ -52,7 +53,9 @@ export async function runIssueUpdate(args: {
             })
           }
         : args.updates
-    args.preparation?.signal.throwIfAborted()
+    if (imageContext.attachmentPreparationId) {
+      args.preparation?.signal.throwIfAborted()
+    }
     const updateArgs = {
       owner: issueRepo.owner,
       repo: issueRepo.repo,
@@ -62,7 +65,8 @@ export async function runIssueUpdate(args: {
     }
     const res = await gitHubSlugApiForTarget(
       imageContext.runtime,
-      imageContext.rpcOptions
+      imageContext.rpcOptions,
+      imageContext.attachmentPreparationId
     ).updateIssueBySlug({
       ...updateArgs,
       wakeWslDistro: true
@@ -92,7 +96,7 @@ export async function runIssueUpdate(args: {
   const target = runtimeHost
     ? { kind: 'environment' as const, environmentId: runtimeHost.environmentId }
     : { kind: 'local' as const }
-  const imageContext = await captureGitHubImageContext({
+  const imageContext = gitHubImageContext({
     runtime: target,
     target: {
       kind: 'repo',
@@ -112,31 +116,46 @@ export async function runIssueUpdate(args: {
           })
         }
       : args.updates
-  args.preparation?.signal.throwIfAborted()
-  const res = await callGitHubTargetOperation({
-    target: imageContext.runtime,
-    rpcOptions: imageContext.rpcOptions,
-    ownerRepo: args.issueRepo,
-    method: 'github.updateIssue',
-    params: {
-      repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId ?? ''),
-      number: args.number,
-      updates
-    },
-    local: (exact) =>
-      window.api.gh.updateIssue({
-        repoPath: args.repoPath ?? '',
-        repoId: args.repoId ?? undefined,
-        sourceContext: args.sourceContext,
-        number: args.number,
-        updates,
-        ...exact
+  if (imageContext.attachmentPreparationId) {
+    args.preparation?.signal.throwIfAborted()
+  }
+  const res = imageContext.attachmentPreparationId
+    ? await callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.updateIssue>>>(
+        imageContext.runtime,
+        'github.updateIssue',
+        {
+          repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId ?? args.repoPath ?? ''),
+          number: args.number,
+          updates,
+          ownerRepo: args.issueRepo,
+          attachmentPreparationId: imageContext.attachmentPreparationId
+        },
+        { ...imageContext.rpcOptions, timeoutMs: 30_000 }
+      )
+    : await callGitHubTargetOperation({
+        target: imageContext.runtime,
+        rpcOptions: imageContext.rpcOptions,
+        ownerRepo: args.issueRepo,
+        method: 'github.updateIssue',
+        params: {
+          repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId ?? ''),
+          number: args.number,
+          updates
+        },
+        local: (exact) =>
+          window.api.gh.updateIssue({
+            repoPath: args.repoPath ?? '',
+            repoId: args.repoId ?? undefined,
+            sourceContext: args.sourceContext,
+            number: args.number,
+            updates,
+            ...exact
+          })
       })
-  })
   if (!res.ok) {
     throw new Error(codeHostErrorText(res))
   }
-  if (runtimeHost || args.type === 'pr') {
+  if (runtimeHost || imageContext.attachmentPreparationId || args.type === 'pr') {
     notifyWorkItemDetailsMutation(
       {
         repoPath: args.repoPath ?? '',
@@ -168,7 +187,7 @@ export async function runWorkItemBodyUpdate(args: {
       args.sourceContext?.provider === 'github'
         ? taskSourceRuntimeTarget(args.sourceContext)
         : getGitHubMutationTarget(args.item.repoId, args.projectOrigin)
-    const imageContext = await captureGitHubImageContext({
+    const imageContext = gitHubImageContext({
       runtime: target,
       target: { kind: 'slug', ...targetSlug }
     })
@@ -179,7 +198,9 @@ export async function runWorkItemBodyUpdate(args: {
           context: imageContext
         })
       : args.body
-    args.preparation?.signal.throwIfAborted()
+    if (imageContext.attachmentPreparationId) {
+      args.preparation?.signal.throwIfAborted()
+    }
     const updateArgs = {
       owner: targetSlug.owner,
       repo: targetSlug.repo,
@@ -189,7 +210,8 @@ export async function runWorkItemBodyUpdate(args: {
     }
     const res = await gitHubSlugApiForTarget(
       imageContext.runtime,
-      imageContext.rpcOptions
+      imageContext.rpcOptions,
+      imageContext.attachmentPreparationId
     ).updatePullRequestBySlug({
       ...updateArgs,
       wakeWslDistro: true

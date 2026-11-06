@@ -8,6 +8,7 @@ export const Issue = RepoSelector.extend({
 })
 
 export const CreateIssue = RepoSelector.extend({
+  attachmentPreparationId: z.string().min(1).optional(),
   title: requiredString('Missing title'),
   body: z.string(),
   labels: z.array(z.string()).optional(),
@@ -15,12 +16,14 @@ export const CreateIssue = RepoSelector.extend({
 })
 
 export const UpdateIssue = RepoSelector.extend({
+  attachmentPreparationId: z.string().min(1).optional(),
   ownerRepo: SlugRepo.optional(),
   number: z.number().int().positive(),
   updates: IssueUpdate
 })
 
 export const IssueComment = RepoSelector.extend({
+  attachmentPreparationId: z.string().min(1).optional(),
   number: z.number().int().positive(),
   body: requiredString('Comment body required'),
   type: z.enum(['issue', 'pr']).optional(),

@@ -1,3 +1,4 @@
+import { defineGitHubBodyMethod } from './github-body-method'
 import { defineMethod } from '../core'
 import {
   CreateIssue,
@@ -13,10 +14,13 @@ export const GITHUB_ISSUE_METHODS = [
     params: Issue,
     handler: async (params, { runtime }) => runtime.getRepoIssue(params.repo, params.number)
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.createIssue',
     permission: 'workspace',
     params: CreateIssue,
+    attachmentTarget: (params) => ({
+      target: { kind: 'repo', repo: params.repo, source: 'issue' }
+    }),
     handler: async (params, { runtime }) => {
       const fields =
         params.labels !== undefined || params.assignees !== undefined
@@ -27,10 +31,13 @@ export const GITHUB_ISSUE_METHODS = [
         : runtime.createRepoIssue(params.repo, params.title, params.body)
     }
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.updateIssue',
     permission: 'workspace',
     params: UpdateIssue,
+    attachmentTarget: (params) => ({
+      target: { kind: 'repo', repo: params.repo, source: 'issue', ownerRepo: params.ownerRepo }
+    }),
     handler: async (params, { runtime }) =>
       runtime.updateRepoIssue(
         params.repo,
@@ -39,10 +46,18 @@ export const GITHUB_ISSUE_METHODS = [
         ...(params.ownerRepo ? ([params.ownerRepo] as const) : ([] as const))
       )
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.addIssueComment',
     permission: 'workspace',
     params: IssueComment,
+    attachmentTarget: (params) => ({
+      target: {
+        kind: 'repo',
+        repo: params.repo,
+        source: params.type === 'pr' ? 'origin' : 'issue',
+        ownerRepo: params.prRepo ?? undefined
+      }
+    }),
     handler: async (params, { runtime }) =>
       params.type
         ? runtime.addRepoIssueComment(

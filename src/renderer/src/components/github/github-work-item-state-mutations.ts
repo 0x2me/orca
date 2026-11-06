@@ -1,8 +1,15 @@
+import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import type { RuntimeStatus } from '../../../../shared/runtime-types'
+import type { GhAccountBinding } from '../../../../shared/github/account-binding'
+import { GITHUB_ACCOUNT_EXPECTATION_RUNTIME_CAPABILITY } from '../../../../shared/task-source-runtime-capabilities'
+import { getRuntimeEnvironmentConnectionGeneration } from '@/store/slices/runtime-status-connection-generation'
+import { RUNTIME_CONNECTION_CHANGED_MESSAGE } from '@/web/web-runtime-request-registry'
 import { getGitHubMutationTarget } from './github-work-item-mutation-target'
 import { useAppStore } from '@/store'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { gitHubSlugApiForTarget } from '@/runtime/github-slug-owner-api'
 import {
+  getGitHubSourceRuntimeHost,
   getGitHubRepoRoutingTarget,
   getGitHubRuntimeRepoId
 } from '@/lib/github-source-runtime-context'
@@ -97,4 +104,76 @@ export async function runPullRequestStateUpdate(args: {
       { local: false }
     )
   }
+}
+
+export function setPRFileViewedForRepo(args: {
+  repoId: string
+  repoPath: string
+  sourceContext?: TaskSourceContext | null
+  prNumber: number
+  prRepo?: GitHubOwnerRepo | null
+  pullRequestId: string
+  path: string
+  viewed: boolean
+  expectedGhAccount?: GhAccountBinding | null
+  target?: RuntimeClientTarget
+}): Promise<boolean> {
+  const runtimeHost = getGitHubSourceRuntimeHost(args.sourceContext)
+  const target = runtimeHost
+    ? { kind: 'environment' as const, environmentId: runtimeHost.environmentId }
+    : (args.target ?? { kind: 'local' as const })
+  if (target.kind === 'environment') {
+    const generation = getRuntimeEnvironmentConnectionGeneration(target.environmentId)
+    const expectedGhAccount = args.expectedGhAccount
+    const params = {
+      repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId) ?? args.repoPath,
+      prRepo: args.prRepo ?? null,
+      pullRequestId: args.pullRequestId,
+      path: args.path,
+      viewed: args.viewed
+    }
+    return callRuntimeRpc<boolean>(target, 'github.setPRFileViewed', params, {
+      timeoutMs: 30_000,
+      ...(expectedGhAccount !== undefined
+        ? {
+            paramsForStatus: (status: RuntimeStatus | null) => ({
+              ...params,
+              ...(status?.capabilities?.includes(GITHUB_ACCOUNT_EXPECTATION_RUNTIME_CAPABILITY)
+                ? { expectedGhAccount }
+                : {})
+            }),
+            beforeSend: () => {
+              if (getRuntimeEnvironmentConnectionGeneration(target.environmentId) !== generation) {
+                throw new Error(RUNTIME_CONNECTION_CHANGED_MESSAGE)
+              }
+            }
+          }
+        : {})
+    }).then((ok) => {
+      if (ok) {
+        notifyWorkItemDetailsMutation(
+          {
+            repoPath: args.repoPath,
+            repoId: args.repoId,
+            sourceContext: args.sourceContext,
+            type: 'pr',
+            number: args.prNumber
+          },
+          { local: false }
+        )
+      }
+      return ok
+    })
+  }
+  return window.api.gh.setPRFileViewed({
+    repoPath: args.repoPath,
+    repoId: args.repoId,
+    sourceContext: args.sourceContext,
+    prNumber: args.prNumber,
+    prRepo: args.prRepo ?? null,
+    pullRequestId: args.pullRequestId,
+    path: args.path,
+    viewed: args.viewed,
+    ...(args.expectedGhAccount !== undefined ? { expectedGhAccount: args.expectedGhAccount } : {})
+  })
 }

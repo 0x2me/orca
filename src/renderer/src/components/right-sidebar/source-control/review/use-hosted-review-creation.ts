@@ -1,3 +1,4 @@
+import { githubAttachmentRepoSelection } from '../../../../../../shared/github/attachment-repo-selection'
 import type { HostedReviewCreationInput } from './hosted-review-creation-input'
 import { useGitHubDraft } from '@/components/github/use-github-draft'
 import { useCallback } from 'react'
@@ -48,7 +49,12 @@ export function useSourceControlHostedReviewCreation({
   const attachmentDraft = useGitHubDraft(
     prBody,
     (body) => setPrBody?.(body),
-    JSON.stringify([activeRepo?.id, activeWorktreeId, branchName, activeRepo?.ghAccount])
+    JSON.stringify([
+      activeRepo?.id,
+      activeWorktreeId,
+      branchName,
+      activeRepo ? githubAttachmentRepoSelection(activeRepo, {}) : null
+    ])
   )
   const createPullRequest = useCallback(
     async (stacked = false, generated?: PullRequestGenerationFields): Promise<void> =>
@@ -130,11 +136,11 @@ export function useSourceControlHostedReviewCreation({
             const result = stacked
               ? await createStackedHostedReview(activeRepo.path, createInput, {
                   signal,
-                  update: attachmentDraft.change
+                  update: attachmentDraft.prepared
                 })
               : await createHostedReview(activeRepo.path, createInput, {
                   signal,
-                  update: attachmentDraft.change
+                  update: attachmentDraft.prepared
                 })
 
             if (result.ok) {

@@ -1,3 +1,4 @@
+import { defineGitHubBodyMethod } from './github-body-method'
 import { defineMethod } from '../core'
 import {
   MarkPrDraft,
@@ -21,10 +22,18 @@ export const GITHUB_PULL_REQUEST_UPDATE_METHODS = [
     handler: async (params, { runtime }) =>
       runtime.updateRepoPRTitle(params.repo, params.prNumber, params.title, params.prRepo ?? null)
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.updatePR',
     permission: 'workspace',
     params: UpdatePr,
+    attachmentTarget: (params) => ({
+      target: {
+        kind: 'repo',
+        repo: params.repo,
+        source: 'origin',
+        ownerRepo: params.prRepo ?? undefined
+      }
+    }),
     handler: async (params, { runtime }) =>
       runtime.updateRepoPRDetails(
         params.repo,
@@ -98,10 +107,18 @@ export const GITHUB_PULL_REQUEST_UPDATE_METHODS = [
         params.prRepo ?? null
       )
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.addPRReviewComment',
     permission: 'workspace',
     params: PRReviewComment,
+    attachmentTarget: (params) => ({
+      target: {
+        kind: 'repo',
+        repo: params.repo,
+        source: 'origin',
+        ownerRepo: params.prRepo ?? undefined
+      }
+    }),
     handler: async (params, { runtime }) =>
       runtime.addRepoPRReviewComment(params.repo, {
         prNumber: params.prNumber,
@@ -113,10 +130,18 @@ export const GITHUB_PULL_REQUEST_UPDATE_METHODS = [
         body: params.body
       })
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.addPRReviewCommentReply',
     permission: 'workspace',
     params: PRReviewCommentReply,
+    attachmentTarget: (params) => ({
+      target: {
+        kind: 'repo',
+        repo: params.repo,
+        source: 'origin',
+        ownerRepo: params.prRepo ?? undefined
+      }
+    }),
     handler: async (params, { runtime }) =>
       runtime.addRepoPRReviewCommentReply(params.repo, {
         prNumber: params.prNumber,

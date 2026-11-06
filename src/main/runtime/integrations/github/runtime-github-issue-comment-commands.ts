@@ -1,3 +1,4 @@
+import type { GitHubAttachmentCaller } from '../../../github/attachment-preparation-contexts'
 import '../../../github/rate-limit'
 import type {
   GitHubCreateIssueFields,
@@ -5,8 +6,6 @@ import type {
 } from '../../../../shared/issue-mutation-types'
 import type { GitHubOwnerRepo } from '../../../../shared/github/pull-request-types'
 import type { GitHubPRReviewCommentInput } from '../../../../shared/github/comment-types'
-import type { Repo } from '../../../../shared/repo-types'
-import type { LocalProjectGhExecOptions } from '../../../workspaces/execution-host/project-runtime-git-options'
 import { addIssueComment } from '../../../github/issue-comment'
 import {
   addPRReviewComment,
@@ -15,69 +14,51 @@ import {
 import { createIssue } from '../../../github/issue-create'
 import { updateIssue } from '../../../github/issue-update'
 import { getRepoRoutingConnectionId } from '../../../../shared/execution-host'
-import { uploadGitHubImage } from '../../../github/image-attachment-upload'
-import type { GitHubAttachmentTarget } from '../../../../shared/rpc-contract/github-attachment-params'
 import {
-  resolveGitHubRepoExecution,
-  resolveIssueGitHubApiRepositorySource
-} from '../../../github/github-api-repository'
-import { projectGhExecOptions } from '../../../github/project-view/internals'
+  RuntimeGitHubAttachmentCommands,
+  type GitHubAttachmentCommandDeps
+} from './runtime-github-attachment-commands'
+import type { GitHubAttachmentTarget } from '../../../../shared/rpc-contract/github-attachment-params'
 
-type LocalGitArgs = [] | [LocalProjectGhExecOptions]
-
-type RuntimeGitHubIssueCommentCommandsDeps = {
-  resolveRepo: (selector: string) => Promise<Repo>
-  getLocalGitArgs: (repo: Repo) => LocalGitArgs
-}
+type RuntimeGitHubIssueCommentCommandsDeps = GitHubAttachmentCommandDeps
 
 export class RuntimeGitHubIssueCommentCommands {
-  constructor(private readonly deps: RuntimeGitHubIssueCommentCommandsDeps) {}
+  constructor(private readonly deps: RuntimeGitHubIssueCommentCommandsDeps) {
+    this.attachments = new RuntimeGitHubAttachmentCommands(deps)
+  }
 
+  private readonly attachments: RuntimeGitHubAttachmentCommands
+
+  getGitHubAttachmentSelection(selector: string) {
+    return this.attachments.selection(selector)
+  }
+  retireGitHubAttachmentsForConnection(connectionId: string): void {
+    this.attachments.retireConnection(connectionId)
+  }
+  disposeGitHubAttachments(): void {
+    this.attachments.dispose()
+  }
+  withGitHubAttachmentPreparation<T>(
+    id: string,
+    target: GitHubAttachmentTarget,
+    caller: GitHubAttachmentCaller,
+    action: () => Promise<T>,
+    worktree?: string
+  ): Promise<T> {
+    return this.attachments.publish(id, target, caller, action, worktree)
+  }
   uploadGitHubAttachment(
     args: {
       target: GitHubAttachmentTarget
+      preparationId?: string
       fileName: string
       contentType: string
     },
     claim: () => Buffer,
-    signal?: AbortSignal
-  ): Promise<{ url: string }> {
-    return uploadGitHubImage({
-      ...args,
-      claim,
-      signal,
-      resolve: async (budget) => {
-        const target = args.target
-        if (target.kind === 'slug') {
-          return {
-            ownerRepo: target,
-            ghOptions: { ...projectGhExecOptions(target.host), ...budget }
-          }
-        }
-        const repo = await this.deps.resolveRepo(target.repo)
-        budget.signal?.throwIfAborted()
-        const options = { ...this.deps.getLocalGitArgs(repo)[0], ...budget }
-        const connectionId = getRepoRoutingConnectionId(repo)
-        return resolveGitHubRepoExecution(
-          repo.path,
-          target.ownerRepo ??
-            (target.source === 'issue'
-              ? async () =>
-                  (
-                    await resolveIssueGitHubApiRepositorySource(
-                      repo.path,
-                      repo.issueSourcePreference,
-                      connectionId,
-                      options
-                    )
-                  ).source
-              : undefined),
-          connectionId,
-          options,
-          target.expectedGhAccount
-        )
-      }
-    })
+    signal: AbortSignal | undefined,
+    caller: GitHubAttachmentCaller
+  ): Promise<{ url: string; preparationId: string }> {
+    return this.attachments.upload(args, caller, claim, signal)
   }
 
   async createRepoIssue(

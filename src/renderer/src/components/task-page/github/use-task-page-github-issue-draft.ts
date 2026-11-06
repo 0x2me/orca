@@ -1,3 +1,4 @@
+import { githubAttachmentRepoSelection } from '../../../../../shared/github/attachment-repo-selection'
 import { useGitHubDraft } from '@/components/github/use-github-draft'
 import type { TaskPageGitHubCacheReconciliationModel } from './use-task-page-github-cache-reconciliation'
 import { useState, useMemo, useEffect } from 'react'
@@ -48,17 +49,19 @@ export function useTaskPageGitHubIssueDraft(model: TaskPageGitHubCacheReconcilia
   }, [newIssueSourceContext, newIssueTargetRepo, repos, settings])
   const newIssueDraftController = useGitHubDraft(
     newIssueBody,
-    (body) => {
-      setNewIssueBody(body)
-      setNewIssueDraft({ body })
-    },
+    setNewIssueBody,
     JSON.stringify([
       newIssueOpen,
-      newIssueTargetRepo?.id,
+      newIssueTargetRepo ? githubAttachmentRepoSelection(newIssueTargetRepo, {}) : null,
       newIssueRuntimeTarget,
       newIssueSourceContext
     ])
   )
+  newIssueDraftController.onPrepared = (body) => {
+    if (useAppStore.getState().newIssueDraft?.body !== body) {
+      setNewIssueDraft({ body })
+    }
+  }
   const newIssueRepoLabels = useRepoLabels(
     newIssueOpen ? (newIssueTargetRepo?.path ?? null) : null,
     newIssueOpen ? (newIssueTargetRepo?.id ?? null) : null,
@@ -97,6 +100,16 @@ export function useTaskPageGitHubIssueDraft(model: TaskPageGitHubCacheReconcilia
         assignees: newIssueAssignees
       })
     ) {
+      const current = useAppStore.getState().newIssueDraft
+      if (
+        current?.title === newIssueTitle &&
+        current.body === newIssueBody &&
+        current.repoId === newIssueRepoId &&
+        current.labels === newIssueLabels &&
+        current.assignees === newIssueAssignees
+      ) {
+        return
+      }
       setNewIssueDraft({
         title: newIssueTitle,
         body: newIssueBody,

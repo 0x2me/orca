@@ -1,7 +1,8 @@
 import {
-  prepareGitHubImages,
-  captureGitHubImageContext
-} from '@/components/github/prepare-github-images'
+  markdownImageDestinations,
+  isUnresolvedGitHubImage
+} from '../../../../../shared/github/markdown-image-destinations'
+import { prepareGitHubImages, gitHubImageContext } from '@/components/github/prepare-github-images'
 import type { TaskPageWorkspaceActionsModel } from '../use-task-page-workspace-actions'
 import { useCallback } from 'react'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
@@ -69,6 +70,8 @@ export function useTaskPageGitHubIssueCreation<Model extends TaskPageGitHubIssue
         if (!title || newIssueSubmitting) {
           return
         }
+        const destinations = markdownImageDestinations(draftBody)
+        const imageAttempt = destinations.some((image) => isUnresolvedGitHubImage(image.source))
         try {
           const sourceReady = await useAppStore
             .getState()
@@ -81,25 +84,33 @@ export function useTaskPageGitHubIssueCreation<Model extends TaskPageGitHubIssue
             toast.error(translate('auto.components.TaskPage.7437e340b4', 'Failed to create issue.'))
             return
           }
-          signal.throwIfAborted()
+          if (imageAttempt) {
+            signal.throwIfAborted()
+          }
           const uploadRuntime = newIssueRuntimeTarget ?? { kind: 'local' as const }
           const uploadSelector =
             newIssueSourceContext?.provider === 'github'
               ? (newIssueSourceContext.repoId ?? newIssueTargetRepo.id)
               : newIssueTargetRepo.id
-          const imageContext = await captureGitHubImageContext({
+          const imageContext = gitHubImageContext({
             runtime: uploadRuntime,
             target: { kind: 'repo', repo: uploadSelector, source: 'issue' }
           })
           const preparedBody = await prepareGitHubImages({
             body: draftBody,
+            destinations,
             signal,
             context: imageContext,
-            update: newIssueDraftController.change
+            update: newIssueDraftController.prepared
           })
-          signal.throwIfAborted()
+          if (imageAttempt) {
+            signal.throwIfAborted()
+          }
+          if (imageAttempt && !sourceReady()) {
+            throw new Error('The GitHub issue destination changed. Your draft is kept; try again.')
+          }
           const result =
-            imageContext.runtime.kind === 'environment'
+            imageContext.runtime.kind === 'environment' || imageContext.attachmentPreparationId
               ? await callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.createIssue>>>(
                   imageContext.runtime,
                   'github.createIssue',
@@ -110,6 +121,7 @@ export function useTaskPageGitHubIssueCreation<Model extends TaskPageGitHubIssue
                         : newIssueTargetRepo.id,
                     title,
                     body: preparedBody,
+                    attachmentPreparationId: imageContext.attachmentPreparationId,
                     labels: newIssueLabels,
                     assignees: newIssueAssignees.map((assignee) => assignee.login)
                   },

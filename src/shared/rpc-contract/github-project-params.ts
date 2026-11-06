@@ -54,6 +54,8 @@ export const ClearProjectItemField = z.object({
 })
 
 export const SlugIssueUpdate = z.object({
+  attachmentPreparationId: z.string().min(1).optional(),
+  wakeWslDistro: z.boolean().optional(),
   owner: requiredString('Missing owner'),
   repo: requiredString('Missing repo'),
   host: OptionalString,
@@ -62,6 +64,8 @@ export const SlugIssueUpdate = z.object({
 })
 
 export const SlugPullRequestUpdate = z.object({
+  attachmentPreparationId: z.string().min(1).optional(),
+  wakeWslDistro: z.boolean().optional(),
   owner: requiredString('Missing owner'),
   repo: requiredString('Missing repo'),
   host: OptionalString,
@@ -82,6 +86,8 @@ export const SlugIssueTypeUpdate = z.object({
 })
 
 export const SlugIssueComment = z.object({
+  attachmentPreparationId: z.string().min(1).optional(),
+  wakeWslDistro: z.boolean().optional(),
   owner: requiredString('Missing owner'),
   repo: requiredString('Missing repo'),
   host: OptionalString,
@@ -90,6 +96,8 @@ export const SlugIssueComment = z.object({
 })
 
 export const SlugIssueCommentEdit = z.object({
+  attachmentPreparationId: z.string().min(1).optional(),
+  wakeWslDistro: z.boolean().optional(),
   owner: requiredString('Missing owner'),
   repo: requiredString('Missing repo'),
   host: OptionalString,

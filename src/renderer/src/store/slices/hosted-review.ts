@@ -108,12 +108,13 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
     const imageContext = prepared.context
     input = prepared.input
     const { repoId: inputRepoId, ...hostedReviewInput } = input
-    if (imageContext.runtime.kind === 'environment') {
+    if (imageContext.runtime.kind === 'environment' || imageContext.attachmentPreparationId) {
       const { worktreePath, ...runtimeInput } = hostedReviewInput
       return callRuntimeRpc<CreateHostedReviewResult>(
         imageContext.runtime,
         'hostedReview.create',
         {
+          attachmentPreparationId: imageContext.attachmentPreparationId,
           repo: repo?.id ?? repoPath,
           ...(worktreePath ? { worktree: `path:${worktreePath}` } : {}),
           ...runtimeInput
@@ -136,12 +137,13 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
     const imageContext = prepared.context
     input = prepared.input
     const { repoId: inputRepoId, ...hostedReviewInput } = input
-    if (imageContext.runtime.kind === 'environment') {
+    if (imageContext.runtime.kind === 'environment' || imageContext.attachmentPreparationId) {
       const { worktreePath, ...runtimeInput } = hostedReviewInput
       return callRuntimeRpc<CreateStackedHostedReviewResult>(
         imageContext.runtime,
         'hostedReview.createStacked',
         {
+          attachmentPreparationId: imageContext.attachmentPreparationId,
           repo: repo?.id ?? repoPath,
           ...(worktreePath ? { worktree: `path:${worktreePath}` } : {}),
           ...runtimeInput

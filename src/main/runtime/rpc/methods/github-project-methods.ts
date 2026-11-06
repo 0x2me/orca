@@ -1,3 +1,4 @@
+import { defineGitHubBodyMethod } from './github-body-method'
 import { defineMethod } from '../core'
 import { SlugRepo } from '../../../../shared/rpc-contract/github-repo-target-params'
 import {
@@ -78,16 +79,34 @@ export const GITHUB_PROJECT_METHODS = [
     params: ClearProjectItemField,
     handler: async (params, { runtime }) => runtime.clearGitHubProjectItemField(params)
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.project.updateIssueBySlug',
     permission: 'workspace',
     params: SlugIssueUpdate,
+    attachmentTarget: (params) => ({
+      target: {
+        kind: 'slug',
+        owner: params.owner,
+        repo: params.repo,
+        host: params.host,
+        wakeWslDistro: params.wakeWslDistro
+      }
+    }),
     handler: async (params, { runtime }) => runtime.updateGitHubIssueBySlug(params)
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.project.updatePullRequestBySlug',
     permission: 'workspace',
     params: SlugPullRequestUpdate,
+    attachmentTarget: (params) => ({
+      target: {
+        kind: 'slug',
+        owner: params.owner,
+        repo: params.repo,
+        host: params.host,
+        wakeWslDistro: params.wakeWslDistro
+      }
+    }),
     handler: async (params, { runtime }) => runtime.updateGitHubPullRequestBySlug(params)
   }),
   defineMethod({
@@ -96,16 +115,34 @@ export const GITHUB_PROJECT_METHODS = [
     params: SlugIssueTypeUpdate,
     handler: async (params, { runtime }) => runtime.updateGitHubIssueTypeBySlug(params)
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.project.addIssueCommentBySlug',
     permission: 'workspace',
     params: SlugIssueComment,
+    attachmentTarget: (params) => ({
+      target: {
+        kind: 'slug',
+        owner: params.owner,
+        repo: params.repo,
+        host: params.host,
+        wakeWslDistro: params.wakeWslDistro
+      }
+    }),
     handler: async (params, { runtime }) => runtime.addGitHubIssueCommentBySlug(params)
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'github.project.updateIssueCommentBySlug',
     permission: 'workspace',
     params: SlugIssueCommentEdit,
+    attachmentTarget: (params) => ({
+      target: {
+        kind: 'slug',
+        owner: params.owner,
+        repo: params.repo,
+        host: params.host,
+        wakeWslDistro: params.wakeWslDistro
+      }
+    }),
     handler: async (params, { runtime }) => runtime.updateGitHubIssueCommentBySlug(params)
   }),
   defineMethod({

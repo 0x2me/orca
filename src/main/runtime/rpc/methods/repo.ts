@@ -183,6 +183,13 @@ export const REPO_METHODS = [
     permission: 'workspace',
     params: RepoShow,
     handler: async (params, context) => ({
+      ...(params.includeGitHubAttachmentSelection
+        ? {
+            githubAttachmentSelection: await context.runtime.getGitHubAttachmentSelection(
+              hostQualifiedRepoSelector(params.repo, params.repoHostId)
+            )
+          }
+        : {}),
       repo: projectRepoVisibilityForClient(
         await context.runtime.showRepo(hostQualifiedRepoSelector(params.repo, params.repoHostId)),
         context

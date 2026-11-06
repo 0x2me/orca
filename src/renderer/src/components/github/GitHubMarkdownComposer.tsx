@@ -1,3 +1,4 @@
+import { useGitHubPreparedImageUpdates } from './github-composer-prepared-image'
 import type { GitHubMarkdownComposerProps } from './github-markdown-composer-props'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEditor } from '@tiptap/react'
@@ -196,6 +197,8 @@ export function GitHubMarkdownComposer({
     editorRef.current = editor
     editor.setEditable(!disabled, false)
   }, [disabled, editor])
+
+  useGitHubPreparedImageUpdates(editor, draft, applyingExternalValueRef, lastSyncedMarkdownRef)
 
   useEffect(() => {
     if (!editor) {

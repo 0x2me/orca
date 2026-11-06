@@ -8,7 +8,10 @@ export const RepoSelector = z.object({
 })
 
 /** `repo.show`: `repoHostId` narrows a repo id set up on several hosts; older hosts drop it. */
-export const RepoShow = RepoSelector.extend({ repoHostId: OptionalExecutionHostId })
+export const RepoShow = RepoSelector.extend({
+  repoHostId: OptionalExecutionHostId,
+  includeGitHubAttachmentSelection: OptionalBoolean
+})
 
 /** `repo.issueCommandRead`: `wakeWslDistro` marks a launch, which may start a stopped WSL distro; older hosts drop it. */
 export const RepoIssueCommandRead = RepoSelector.extend({ wakeWslDistro: OptionalBoolean })

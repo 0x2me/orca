@@ -1,3 +1,4 @@
+import { RuntimeGitHubAttachmentCommands } from '../runtime/integrations/github/runtime-github-attachment-commands'
 // E9: a cwd-less gh/glab call whose host CLI is missing must not boot a stopped default distro from
 // background work (rate limits, auth status, Settings, task-source probes).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -121,4 +122,52 @@ describe('starring Orca, which is always a click', () => {
     await expect(starOrca()).resolves.toBe(true)
     expect(spawnedWsl()).toBe(true)
   })
+})
+
+it('keeps the explicit local image upload and final slug publication inside the stopped-default-distro user action', async () => {
+  readWslDistroRunningStateMock.mockResolvedValue('stopped')
+  const commands = new RuntimeGitHubAttachmentCommands({
+    resolveRepo: async () => {
+      throw new Error('Slug calls must remain ambient')
+    },
+    getLocalGitArgs: () => [],
+    resolveHostedReviewTarget: async () => {
+      throw new Error('Unexpected worktree')
+    }
+  })
+  const target = {
+    kind: 'slug' as const,
+    owner: 'owner',
+    repo: 'repo',
+    host: 'github.com',
+    wakeWslDistro: true
+  }
+  const caller = { identity: 'desktop:1', connectionId: 'renderer:1' }
+  const answer = (stdout: string) => {
+    spawnMock
+      .mockImplementationOnce(
+        fakeSpawnReturning({
+          spawnError: Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' })
+        })
+      )
+      .mockImplementationOnce(fakeSpawnReturning({ stdout }))
+  }
+  answer('{"id":123}')
+  answer('{"url":"https://github.com/user-attachments/assets/a"}')
+  answer('{}')
+  try {
+    const uploaded = await commands.upload(
+      { target, contentType: 'image/png', fileName: 'screen.png' },
+      caller,
+      () => Buffer.from([1])
+    )
+    await expect(
+      commands.publish(uploaded.preparationId, target, caller, () =>
+        ghExecFileAsync(['api', 'repos/owner/repo/issues'])
+      )
+    ).resolves.toEqual({ stdout: '{}', stderr: '' })
+    expect(spawnMock.mock.calls.filter(([program]) => program === 'wsl.exe')).toHaveLength(3)
+  } finally {
+    commands.dispose()
+  }
 })

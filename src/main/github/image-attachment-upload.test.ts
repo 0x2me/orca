@@ -81,7 +81,7 @@ describe('GitHub attachment upload', () => {
     await rejected
     expect(claim).not.toHaveBeenCalled()
     expect(gh).not.toHaveBeenCalled()
-    expect(release).toHaveBeenCalledOnce()
+    expect(release).not.toHaveBeenCalled()
   })
 
   it('refuses unsupported hosts and oversize data before uploading and never retries a rejected POST', async () => {
@@ -118,4 +118,25 @@ describe('GitHub attachment upload', () => {
     ).rejects.toThrow('account that can write')
     expect(gh.mock.calls.map((call) => call[0][0])).toEqual(['api', 'api'])
   })
+
+  it.each(['HTTP 500: upstream private detail', 'getaddrinfo ENOTFOUND private.proxy', '{broken'])(
+    'keeps raw remote and parse failures out of the composer: %s',
+    async (failure) => {
+      gh.mockResolvedValueOnce({ stdout: '{"id":123}' })
+      if (failure === '{broken') {
+        gh.mockResolvedValueOnce({ stdout: failure })
+      } else {
+        gh.mockRejectedValueOnce(new Error(failure))
+      }
+      await expect(
+        uploadGitHubImage({
+          fileName: 'screen.png',
+          contentType: 'image/png',
+          claim: () => Buffer.from([1]),
+          resolve: async () => repository
+        })
+      ).rejects.toThrow('Your draft is kept; check your connection and try again')
+      expect(gh).toHaveBeenCalledTimes(2)
+    }
+  )
 })

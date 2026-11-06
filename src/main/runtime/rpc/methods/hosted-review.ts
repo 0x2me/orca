@@ -1,3 +1,4 @@
+import { defineGitHubBodyMethod } from './github-body-method'
 import { defineMethod } from '../core'
 import { supportsHostedReviewCreation } from '../../../../shared/source-control/hosted-review/hosted-review-creation-providers'
 import { UNSUPPORTED_HOSTED_REVIEW_PROVIDER } from '../../../source-control/hosted-review-creation'
@@ -59,10 +60,19 @@ export const HOSTED_REVIEW_METHODS = [
       })
     }
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'hostedReview.create',
     permission: 'workspace',
     params: HostedReviewCreate,
+    attachmentTarget: (params) => {
+      if (params.provider !== 'github') {
+        throw new Error('The GitHub image destination changed. Your draft is kept; try again.')
+      }
+      return {
+        target: { kind: 'repo', repo: params.repo, source: 'origin' },
+        worktree: params.worktree
+      }
+    },
     handler: async (params, { runtime }) => {
       // Refuse an unknown host-issued provider token here; schema rejection would be unreadable to the client.
       if (!supportsHostedReviewCreation(params.provider)) {
@@ -81,10 +91,19 @@ export const HOSTED_REVIEW_METHODS = [
       })
     }
   }),
-  defineMethod({
+  defineGitHubBodyMethod({
     name: 'hostedReview.createStacked',
     permission: 'workspace',
     params: HostedReviewCreate,
+    attachmentTarget: (params) => {
+      if (params.provider !== 'github') {
+        throw new Error('The GitHub image destination changed. Your draft is kept; try again.')
+      }
+      return {
+        target: { kind: 'repo', repo: params.repo, source: 'origin' },
+        worktree: params.worktree
+      }
+    },
     handler: async (params, { runtime }) => {
       if (!supportsHostedReviewCreation(params.provider)) {
         return UNSUPPORTED_HOSTED_REVIEW_PROVIDER

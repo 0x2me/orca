@@ -1,6 +1,8 @@
 import { translate } from '@/i18n/i18n'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
+
+export type GitHubPreparedImage = { source: string; url: string; body: string; attempt: object }
 
 export class GitHubDraft {
   value: string
@@ -9,8 +11,33 @@ export class GitHubDraft {
   private input: string
   private controller = new AbortController()
   private pending = new Set<Promise<void>>()
-  private failures: { error: unknown; reported: boolean }[] = []
+  private failures: unknown[] = []
   private running = false
+  private attempt = {}
+  private readListeners = new Set<() => void>()
+  private imageListeners = new Set<(image: GitHubPreparedImage) => void>()
+  onPrepared?: (body: string) => void
+
+  hasPendingReads = (): boolean => this.pending.size > 0
+  subscribeReads = (listener: () => void): (() => void) => {
+    this.readListeners.add(listener)
+    return () => {
+      this.readListeners.delete(listener)
+    }
+  }
+  subscribeImageReplacement = (listener: (image: GitHubPreparedImage) => void): (() => void) => {
+    this.imageListeners.add(listener)
+    return () => {
+      this.imageListeners.delete(listener)
+    }
+  }
+  prepared = (body: string, image?: { source: string; url: string }): void => {
+    if (image) {
+      this.imageListeners.forEach((listener) => listener({ ...image, body, attempt: this.attempt }))
+    }
+    this.change(body)
+    this.onPrepared?.(body)
+  }
 
   constructor(value: string, update: (body: string) => void, key: string) {
     this.value = this.input = value
@@ -57,7 +84,9 @@ export class GitHubDraft {
           return
         }
         const reported = !this.running
-        this.failures.push({ error, reported })
+        if (!reported) {
+          this.failures.push(error)
+        }
         if (reported) {
           toast.error(
             error instanceof Error
@@ -69,8 +98,12 @@ export class GitHubDraft {
           )
         }
       })
-      .finally(() => this.pending.delete(pending))
+      .finally(() => {
+        this.pending.delete(pending)
+        this.readListeners.forEach((listener) => listener())
+      })
     this.pending.add(pending)
+    this.readListeners.forEach((listener) => listener())
   }
 
   async submit(
@@ -81,6 +114,7 @@ export class GitHubDraft {
       return
     }
     this.running = true
+    this.attempt = {}
     const signal = this.controller.signal
     let busy = false
     try {
@@ -92,16 +126,14 @@ export class GitHubDraft {
       const failure = this.failures.shift()
       this.failures = []
       if (failure) {
-        if (!failure.reported) {
-          toast.error(
-            failure.error instanceof Error
-              ? failure.error.message
-              : translate(
-                  'auto.components.github.imageReadFailed',
-                  'The image could not be read. Paste it again.'
-                )
-          )
-        }
+        toast.error(
+          failure instanceof Error
+            ? failure.message
+            : translate(
+                'auto.components.github.imageReadFailed',
+                'The image could not be read. Paste it again.'
+              )
+        )
         return
       }
       setBusy(true)
@@ -136,6 +168,7 @@ export function useGitHubDraft(
   ref.current ??= new GitHubDraft(value, update, key)
   const draft = ref.current
   draft.sync(value, update, key)
+  useSyncExternalStore(draft.subscribeReads, draft.hasPendingReads, draft.hasPendingReads)
   useEffect(() => () => draft.invalidate(), [draft])
   return draft
 }

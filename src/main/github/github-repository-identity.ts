@@ -201,18 +201,7 @@ export async function getOwnerRepoForRemote(
     ? `ssh:${context.connectionId}`
     : `local:${context.wslDistro ?? 'host'}`
   const cacheKey = `${runtimeKey}\0${context.repoPath}\0${remoteName}`
-  if (context.signal) {
-    githubOperationTimeout(context)
-    const signature = await readLocalGitConfigSignature(context)
-    githubOperationTimeout(context)
-    return resolveOwnerRepoForRemote(
-      context,
-      remoteName,
-      cacheKey,
-      signature,
-      probeOptions.requireVerifiedSshProbe === true
-    )
-  }
+  githubOperationTimeout(context)
   const now = Date.now()
   pruneOwnerRepoCache(now)
   const cached = ownerRepoCache.get(cacheKey)
@@ -220,6 +209,7 @@ export async function getOwnerRepoForRemote(
     // Revalidate signed hits so remote changes are immediately visible.
     if (cached.configSignature !== undefined) {
       const currentSignature = await readLocalGitConfigSignature(context)
+      githubOperationTimeout(context)
       if (currentSignature !== cached.configSignature) {
         ownerRepoCache.delete(cacheKey)
       } else {
@@ -234,10 +224,21 @@ export async function getOwnerRepoForRemote(
   }
 
   const nextConfigSignature = await readLocalGitConfigSignature(context)
+  githubOperationTimeout(context)
   const refreshedNow = Date.now()
   const refreshedCached = ownerRepoCache.get(cacheKey)
   if (refreshedCached && refreshedCached.expiresAt > refreshedNow) {
     return refreshedCached.value
+  }
+
+  if (context.signal) {
+    return resolveOwnerRepoForRemote(
+      context,
+      remoteName,
+      cacheKey,
+      nextConfigSignature,
+      probeOptions.requireVerifiedSshProbe === true
+    )
   }
 
   // Coalesce concurrent identity probes, but retire wedged work so it cannot pin identity forever.
@@ -311,6 +312,7 @@ async function resolveOwnerRepoForRemote(
     pruneOwnerRepoCache(now)
     return null
   } catch (error) {
+    context.signal?.throwIfAborted()
     // Cache stable missing remotes only; transient lock/I/O failures must retry.
     if (!isStableMissingGitRemoteError(error)) {
       if (requireVerifiedSshProbe && context.connectionId) {
