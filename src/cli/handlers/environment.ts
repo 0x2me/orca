@@ -25,6 +25,7 @@ import {
   type EnvironmentAddResult,
   type EnvironmentRemoveResult
 } from '../runtime/environments'
+import { exchangeCliPairingCode } from '../runtime/environment-pairing-exchange'
 import { listEnvironments } from '../../shared/remote-runtime/host-store/runtime-environment-store'
 
 export const ENVIRONMENT_HANDLERS: Record<string, CommandHandler> = {
@@ -50,7 +51,7 @@ export const ENVIRONMENT_HANDLERS: Record<string, CommandHandler> = {
   },
   'environment add': async ({ flags, json }) => {
     const name = getRequiredStringFlag(flags, 'name')
-    const pairingCode = getRequiredStringFlag(flags, 'pairing-code')
+    const pairingCode = await exchangeCliPairingCode(getRequiredStringFlag(flags, 'pairing-code'))
     const environment = redactRuntimeEnvironment(
       addEnvironmentFromPairingCode(getDefaultUserDataPath(), {
         name,
