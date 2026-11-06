@@ -1,3 +1,5 @@
+import type * as NodeFs from 'node:fs'
+import { NodeImageParserFixture } from '../../shared/github/__fixtures__/image-parser-worker-fixture'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as GithubApiRepositoryModule from './github-api-repository'
 import type * as GithubEnterpriseRepositoryModule from './github-enterprise-repository'
@@ -16,6 +18,18 @@ const {
   acquireMock: vi.fn(),
   releaseMock: vi.fn()
 }))
+
+vi.mock('../worker-threads/worker-thread-spawn', () => ({
+  spawnWorkerThread: () => new NodeImageParserFixture()
+}))
+vi.mock('node:fs', async (original) => {
+  const fs = await original<typeof NodeFs>()
+  return {
+    ...fs,
+    existsSync: (path: string) =>
+      path.endsWith('image-parser-worker-entry.js') || fs.existsSync(path)
+  }
+})
 
 vi.mock('./gh-utils', async () => {
   const actual = await vi.importActual<typeof GhUtils>('./gh-utils')

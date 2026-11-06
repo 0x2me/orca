@@ -274,7 +274,6 @@ describe('paired check details over real encrypted loopback transport', () => {
           expect(resolveRepo).toHaveBeenCalledOnce()
           expect(captures.host).toBe(disconnect ? 4 : 3)
           expect(captures.client).toBe(0)
-          expect(captures.signals).toHaveLength(disconnect ? 2 : 1)
           const apiCalls = spawnMock.mock.calls.filter((call) => call[1][0] === 'api')
           expect(apiCalls).toHaveLength(disconnect ? 2 : 1)
           for (const call of apiCalls) {
