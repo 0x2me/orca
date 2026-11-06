@@ -1,41 +1,16 @@
 import { LazyWorkerThreadHost } from './lazy-worker-thread-host'
-import type { WorkerThreadFactory } from './worker-thread-transport'
+import type {
+  WorkerThreadRequestQueueOptions,
+  WorkerThreadRequestOwner,
+  OwnerFailures,
+  PendingCall
+} from './worker-thread-request-options'
+export type {
+  WorkerThreadRequestQueueOptions,
+  WorkerThreadRequestOwner
+} from './worker-thread-request-options'
 
 /** Serialize worker calls; failures must never move their work onto the main thread. */
-
-export type WorkerThreadRequestQueueOptions<TRequest> = {
-  factory: WorkerThreadFactory
-  idleTeardownMs: number
-  /** Consecutive deaths after which the remaining queue is failed rather than respawned. */
-  maxConsecutiveDeaths: number
-  /** Omit for an unbounded queue. */
-  queueCap?: { maxQueuedCalls: number; describeFull: (request: TRequest) => string }
-  /** Progress messages restart the active call deadline without settling it. */
-  isProgress?: (message: { id: number }) => boolean
-  createUnavailableError: (message: string) => Error
-  describeTimeout: (timeoutMs: number) => string
-  describeExit: (code: number) => string
-  describeCrashLoop: (lastError: string) => string
-  /** Called only on the first spawn failure. */
-  onUnavailable: (error: unknown) => void
-  /** Refuse new work until the terminated worker exits; native calls can delay its exit. */
-  awaitRetirement?: boolean
-}
-
-export type WorkerThreadRequestOwner = { readonly signal: AbortSignal }
-
-type OwnerFailures = { consecutiveDeaths: number; refused: Error | null }
-
-type PendingCall<TRequest, TResponse> = {
-  request: TRequest
-  timeoutMs: number
-  resolve: (value: TResponse) => void
-  reject: (error: Error) => void
-  timer: NodeJS.Timeout | null
-  signal?: AbortSignal
-  owner?: WorkerThreadRequestOwner
-  cleanupAbort: () => void
-}
 
 export class WorkerThreadRequestQueue<
   TRequest extends { id: number },
@@ -47,6 +22,7 @@ export class WorkerThreadRequestQueue<
   private readonly ownerFailures = new WeakMap<WorkerThreadRequestOwner, OwnerFailures>()
   private nextId = 1
   private disposed = false
+  private awaitingRetirement = false
   private readonly host: LazyWorkerThreadHost<TResponse>
 
   constructor(private readonly options: WorkerThreadRequestQueueOptions<TRequest>) {
@@ -62,12 +38,13 @@ export class WorkerThreadRequestQueue<
     })
   }
 
-  /** The timeout starts at dispatch, excluding time queued behind other requests. */
+  /** By default timeout starts at dispatch; enqueueBudget includes the entire queue wait. */
   dispatch(
     buildRequest: (id: number) => TRequest,
     timeoutMs: number,
     signal?: AbortSignal,
-    owner?: WorkerThreadRequestOwner
+    owner?: WorkerThreadRequestOwner,
+    retainedBytes = 0
   ): Promise<TResponse> {
     return new Promise((resolve, reject) => {
       if (this.disposed) {
@@ -83,11 +60,32 @@ export class WorkerThreadRequestQueue<
         reject(refused)
         return
       }
-      // Build before checking capacity so a rejection can identify the dropped work.
-      const request = buildRequest(this.nextId++)
+      const budget = this.options.enqueueBudget
+      const id = this.nextId++
+      // Existing callers retain eager construction; byte-budget callers construct only at dispatch.
+      const request = budget ? undefined : buildRequest(id)
       const cap = this.options.queueCap
-      if (cap && this.queue.length >= cap.maxQueuedCalls) {
-        reject(new Error(cap.describeFull(request)))
+      const direct = !this.active && this.queue.length === 0 && !this.host.isRetiring
+      if (
+        (cap && this.queue.length >= cap.maxQueuedCalls) ||
+        (budget &&
+          !direct &&
+          this.queue.reduce((total, queued) => total + queued.retainedBytes, retainedBytes) >
+            budget.maxQueuedBytes)
+      ) {
+        reject(
+          new Error(
+            budget
+              ? budget.describeFull()
+              : request && cap
+                ? cap.describeFull(request)
+                : 'Worker queue is full'
+          )
+        )
+        return
+      }
+      if (timeoutMs <= 0) {
+        reject(new Error(this.options.describeTimeout(timeoutMs)))
         return
       }
       // A new unowned burst must not inherit the previous burst's crash count.
@@ -95,7 +93,10 @@ export class WorkerThreadRequestQueue<
         this.consecutiveDeaths = 0
       }
       const call: PendingCall<TRequest, TResponse> = {
+        id,
         request,
+        buildRequest: budget ? () => buildRequest(id) : undefined,
+        retainedBytes,
         timeoutMs,
         resolve,
         reject,
@@ -115,6 +116,9 @@ export class WorkerThreadRequestQueue<
       }
       signal?.addEventListener('abort', abort, { once: true })
       this.queue.push(call)
+      if (budget) {
+        this.armDeadline(call)
+      }
       this.pump()
     })
   }
@@ -130,7 +134,7 @@ export class WorkerThreadRequestQueue<
   }
 
   private pump(): void {
-    if (this.active || this.queue.length === 0) {
+    if (this.disposed || this.active || this.queue.length === 0) {
       return
     }
     // A shared signal is already aborted before its remaining listeners run.
@@ -148,6 +152,17 @@ export class WorkerThreadRequestQueue<
     }
     const worker = this.host.ensure()
     if (!worker) {
+      const retirement = this.host.retirement
+      if (retirement && this.options.waitForRetirement) {
+        if (!this.awaitingRetirement) {
+          this.awaitingRetirement = true
+          void retirement.then(() => {
+            this.awaitingRetirement = false
+            this.pump()
+          })
+        }
+        return
+      }
       this.failQueuedAsUnavailable()
       return
     }
@@ -157,8 +172,15 @@ export class WorkerThreadRequestQueue<
     }
     this.active = call
     this.host.clearIdleTimer()
-    this.armDeadline(call)
+    if (!this.options.enqueueBudget) {
+      this.armDeadline(call)
+    }
     try {
+      call.request ??= call.buildRequest?.()
+      call.buildRequest = undefined
+      if (!call.request) {
+        throw new Error('Worker request unavailable')
+      }
       worker.postMessage(call.request)
     } catch (error) {
       this.onWorkerFault(error instanceof Error ? error : new Error(String(error)))
@@ -175,11 +197,13 @@ export class WorkerThreadRequestQueue<
 
   private onMessage(response: TResponse): void {
     const call = this.active
-    if (!call || call.request.id !== response.id) {
+    if (!call || call.id !== response.id) {
       return
     }
     if (this.options.isProgress?.(response)) {
-      this.armDeadline(call)
+      if (!this.options.enqueueBudget) {
+        this.armDeadline(call)
+      }
       return
     }
     if (call.owner) {
@@ -192,6 +216,16 @@ export class WorkerThreadRequestQueue<
   }
 
   private onTimeout(call: PendingCall<TRequest, TResponse>): void {
+    if (this.options.enqueueBudget) {
+      if (this.active === call) {
+        this.host.destroy()
+      } else {
+        this.queue = this.queue.filter((queued) => queued !== call)
+      }
+      this.settle(call, () => call.reject(new Error(this.options.describeTimeout(call.timeoutMs))))
+      this.afterSettle()
+      return
+    }
     if (this.active !== call) {
       return
     }
@@ -262,6 +296,8 @@ export class WorkerThreadRequestQueue<
 
   private settle(call: PendingCall<TRequest, TResponse>, run: () => void): void {
     call.cleanupAbort()
+    call.request = undefined
+    call.buildRequest = undefined
     if (call.timer) {
       clearTimeout(call.timer)
       call.timer = null

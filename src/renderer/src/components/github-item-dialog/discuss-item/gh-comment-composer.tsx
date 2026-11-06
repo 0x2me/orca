@@ -71,7 +71,7 @@ export function GHCommentComposer({
             sourceContext,
             number: issueNumber,
             body: bodyState.body,
-            preparation: { signal, update: draft.prepared },
+            preparation: { signal, beforeUpload: draft.prepareImages, update: draft.prepared },
             type: itemType,
             prRepo
           })

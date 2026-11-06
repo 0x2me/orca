@@ -4,6 +4,7 @@ import { CLI_MAIN_ENTRY_NAMES } from './plain-node-entry-guard'
 
 /** Main-build Rollup inputs: output file name (without .js) to its source entry. */
 export const MAIN_BUILD_ENTRY_POINTS: Record<string, string> = {
+  'image-parser-worker-entry': resolve('src/main/github/image-parser-worker-entry.ts'),
   index: resolve('src/main/index.ts'),
   'plugin-frame-guest-preload': resolve('src/preload/plugin-frame-guest.ts'),
   'browser-extension-preload': resolve('src/preload/browser-extension-preload.ts'),

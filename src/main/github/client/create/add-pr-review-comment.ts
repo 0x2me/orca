@@ -1,4 +1,4 @@
-import { gitHubBodyImageError } from '../../../../shared/github/markdown-image-destinations'
+import { gitHubBodyImageError } from '../../github-body-validation'
 import type {
   GitHubCommentResult,
   GitHubPRReviewCommentInput
@@ -19,7 +19,7 @@ export async function addPRReviewComment(
     localGitOptions?: LocalGitExecOptions
   }
 ): Promise<GitHubCommentResult> {
-  const imageError = gitHubBodyImageError(args.body)
+  const imageError = await gitHubBodyImageError(args.body, args.localGitOptions)
   if (imageError) {
     return { ok: false, error: imageError }
   }
@@ -88,7 +88,7 @@ export async function addPRReviewCommentReply(
   prRepo?: GitHubApiRepository | null,
   localGitOptions: LocalGitExecOptions = {}
 ): Promise<GitHubCommentResult> {
-  const imageError = gitHubBodyImageError(body)
+  const imageError = await gitHubBodyImageError(body, localGitOptions)
   if (imageError) {
     return { ok: false, error: imageError }
   }

@@ -1,3 +1,4 @@
+import type { useSourceControlCreatePrIntentReview } from './use-create-pr-intent-review'
 import type { SourceControlAi } from '../ai/use-ai'
 import type { SourceControlStoreActions } from '../listing/use-store-actions'
 import type { SourceControlWorktreeContext } from '../listing/use-worktree-context'
@@ -25,3 +26,7 @@ export type CreatePrIntentReviewInput = {
   setCreatePrIntentNoticeForWorktree: SourceControlWorktreeOperationState['setCreatePrIntentNoticeForWorktree']
   settings: SourceControlWorktreeContext['settings']
 }
+
+export type SourceControlCreatePrIntentReview = ReturnType<
+  typeof useSourceControlCreatePrIntentReview
+>

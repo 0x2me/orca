@@ -1,4 +1,4 @@
-import { gitHubBodyImageError } from '../../shared/github/markdown-image-destinations'
+import { gitHubBodyImageError } from './github-body-validation'
 import type { GitHubCommentResult, PRComment } from '../../shared/github/comment-types'
 import type { IssueSourcePreference } from '../../shared/repo-types'
 import type { LocalGitExecOptions, OwnerRepo } from './gh-utils'
@@ -19,7 +19,7 @@ export async function addIssueComment(
   localGitOptions: LocalGitExecOptions = {},
   preference?: IssueSourcePreference
 ): Promise<GitHubCommentResult> {
-  const imageError = gitHubBodyImageError(body)
+  const imageError = await gitHubBodyImageError(body, localGitOptions)
   if (imageError) {
     return { ok: false, error: imageError }
   }

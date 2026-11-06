@@ -37,9 +37,11 @@ beforeEach(() => {
 })
 
 describe('owner/repo identity cache', () => {
-  it('holds a signed identity past the unsigned TTL instead of re-spawning git', async () => {
+  it('reuses a signed identity under cancellation ownership past the unsigned TTL without re-spawning git', async () => {
     vi.useFakeTimers()
-    await expect(getOwnerRepoForRemote(REPO, 'origin')).resolves.toEqual({
+    await expect(
+      getOwnerRepoForRemote(REPO, 'origin', null, { signal: new AbortController().signal })
+    ).resolves.toEqual({
       owner: 'stablyai',
       repo: 'orca'
     })
@@ -47,7 +49,9 @@ describe('owner/repo identity cache', () => {
 
     // Advance beyond unsigned TTL while remaining within the signed entry lifetime.
     vi.setSystemTime(Date.now() + FOUR_MINUTES)
-    await expect(getOwnerRepoForRemote(REPO, 'origin')).resolves.toEqual({
+    await expect(
+      getOwnerRepoForRemote(REPO, 'origin', null, { signal: new AbortController().signal })
+    ).resolves.toEqual({
       owner: 'stablyai',
       repo: 'orca'
     })
@@ -57,14 +61,16 @@ describe('owner/repo identity cache', () => {
 
   it('re-probes as soon as the git config signature changes', async () => {
     vi.useFakeTimers()
-    await getOwnerRepoForRemote(REPO, 'origin')
+    await getOwnerRepoForRemote(REPO, 'origin', null, { signal: new AbortController().signal })
     expect(remoteGetUrlCalls()).toBe(1)
 
     remoteUrl = 'https://github.com/other-org/orca.git'
     readLocalGitConfigSignatureMock.mockImplementation(async () => 'sig-2')
     vi.setSystemTime(Date.now() + THIRTY_SECONDS)
 
-    await expect(getOwnerRepoForRemote(REPO, 'origin')).resolves.toEqual({
+    await expect(
+      getOwnerRepoForRemote(REPO, 'origin', null, { signal: new AbortController().signal })
+    ).resolves.toEqual({
       owner: 'other-org',
       repo: 'orca'
     })

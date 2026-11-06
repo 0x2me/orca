@@ -176,7 +176,11 @@ export function ConversationTab({
             sourceContext,
             projectOrigin,
             body: currentBody,
-            preparation: { signal, update: bodyController.prepared },
+            preparation: {
+              signal,
+              beforeUpload: bodyController.prepareImages,
+              update: bodyController.prepared
+            },
             parsedSlug: bodySlug
           })
           onBodyUpdated(bodyController.value)

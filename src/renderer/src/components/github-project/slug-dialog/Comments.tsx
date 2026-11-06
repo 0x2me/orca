@@ -163,7 +163,13 @@ function CommentRow({
               disabled={saving}
               onClick={() =>
                 void controller.submit(async (body, signal) => {
-                  if (await onEdit(body, { signal, update: controller.prepared })) {
+                  if (
+                    await onEdit(body, {
+                      signal,
+                      beforeUpload: controller.prepareImages,
+                      update: controller.prepared
+                    })
+                  ) {
                     setEditing(false)
                   }
                 }, setSaving)
@@ -248,6 +254,7 @@ export function NewCommentForm({
                 const body = await prepareGitHubImages({
                   body: bodyState.body,
                   signal,
+                  beforeUpload: controller.prepareImages,
                   update: controller.prepared,
                   context: imageContext
                 })

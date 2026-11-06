@@ -1,4 +1,4 @@
-import { gitHubBodyImageError } from '../../shared/github/markdown-image-destinations'
+import { gitHubBodyImageError } from './github-body-validation'
 import type { GitHubIssueUpdate } from '../../shared/issue-mutation-types'
 import type { IssueSourcePreference } from '../../shared/repo-types'
 import type { LocalGitExecOptions } from './gh-utils'
@@ -20,7 +20,7 @@ export async function updateIssue(
   preference?: IssueSourcePreference,
   ownerRepoOverride?: GitHubApiRepository | null
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const imageError = gitHubBodyImageError(updates.body)
+  const imageError = await gitHubBodyImageError(updates.body, localGitOptions)
   if (imageError) {
     return { ok: false, error: imageError }
   }

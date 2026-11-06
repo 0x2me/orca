@@ -20,7 +20,10 @@ vi.mock('@orca/process-host/process-tree-termination', () => ({
 vi.mock('../../github-api-repository', () => ({ resolveGitHubRepoExecution: resolverMock }))
 import { getPRCheckDetails } from './get-pr-check-details'
 import { prCheckLogTailCache } from './check-job-log-tails'
-import { clearGhCapabilityStateForTests } from '../../gh-capability-state'
+import {
+  clearGhCapabilityStateForTests,
+  getGhMultiAccountCapability
+} from '../../gh-capability-state'
 import { clearGhAccountTokenCacheForTests } from '../../gh-account-token'
 
 const repo = { owner: 'acme', repo: 'widgets' }
@@ -165,7 +168,8 @@ describe('check details existing admission ownership', () => {
     expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('private-output')
   })
 
-  it('retains all four creator permits through joined help and later token continuations after departure', async () => {
+  it('retains cancelled creators through shared help settlement without starting abandoned token children', async () => {
+    signalMock.mockClear()
     const options: GhExecOptions = {
       cwd: '/folder',
       ghAccount: { host: 'github.com', user: 'Alice' },
@@ -175,38 +179,38 @@ describe('check details existing admission ownership', () => {
     const controllers = Array.from({ length: 4 }, () => new AbortController())
     const results = controllers.map((controller) =>
       getPRCheckDetails('/folder', { checkRunId: 1 }, undefined, {}, controller.signal).catch(
-        () => null
+        (error: unknown) => error
       )
     )
     await vi.advanceTimersByTimeAsync(0)
-    expect(children).toHaveLength(1)
-    expect(spawnMock.mock.calls[0][1]).toEqual(['auth', 'token', '--help'])
+    expect(spawnMock.mock.calls.map((call) => call[1])).toEqual([['auth', 'token', '--help']])
+    const liveCapability = getGhMultiAccountCapability({ cwd: '/folder' })
     for (const controller of controllers) {
       controller.abort()
     }
-    await Promise.all(results)
+    for (const result of await Promise.all(results)) {
+      expect(result).toMatchObject({ name: 'AbortError' })
+    }
     resolverMock.mockResolvedValue({ ownerRepo: repo, ghOptions: { cwd: '/folder', env: {} } })
     const fifth = getPRCheckDetails('/folder', { checkRunId: 5 })
-    await vi.advanceTimersByTimeAsync(0)
-    expect(children).toHaveLength(1)
+    void fifth.catch(() => {})
+    await vi.advanceTimersByTimeAsync(9_000)
+    // Public departure does not release permits while the shared child still owns its termination receipt.
+    expect(spawnMock.mock.calls.map((call) => call[1])).toEqual([['auth', 'token', '--help']])
+    expect(signalMock).not.toHaveBeenCalled()
     completeFakeSpawn(children[0], { stdout: '--user' })
+    await expect(liveCapability).resolves.toBe('supported')
     await vi.advanceTimersByTimeAsync(0)
-    expect(children).toHaveLength(5)
-    for (const call of spawnMock.mock.calls.slice(1)) {
-      expect(call[1]).toContain('Alice')
-    }
-    for (const tokenChild of children.slice(1)) {
-      tokenChild.emit('error', new Error('token delivery failed'))
-    }
+    expect(children).toHaveLength(2)
+    expect(spawnMock.mock.calls[1][1]).toContain('repos/acme/widgets/check-runs/5')
+    completeFakeSpawn(children[1], { stdout: '{"name":"fifth"}' })
     await vi.advanceTimersByTimeAsync(0)
-    expect(children).toHaveLength(5)
-    children[1].emit('close', 1, null)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(children).toHaveLength(6)
-    completeFakeSpawn(children[5], { stdout: '{"name":"fifth"}' })
-    await vi.advanceTimersByTimeAsync(0)
-    completeFakeSpawn(children[6], { stdout: '[]' })
+    expect(spawnMock.mock.calls[2][1]).toContain(
+      'repos/acme/widgets/check-runs/5/annotations?per_page=20'
+    )
+    completeFakeSpawn(children[2], { stdout: '[]' })
     await expect(fifth).resolves.toMatchObject({ name: 'fifth' })
-    expect(spawnMock.mock.calls.filter((call) => call[1][0] === 'api')).toHaveLength(2)
+    await expect(getGhMultiAccountCapability({ cwd: '/folder' })).resolves.toBe('supported')
+    expect(spawnMock.mock.calls.map((call) => call[1][0])).toEqual(['auth', 'api', 'api'])
   })
 })

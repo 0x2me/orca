@@ -1,3 +1,4 @@
+import { GitHubImageClassificationError } from '../../../../shared/github/image-parser-protocol'
 import { translate } from '@/i18n/i18n'
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
@@ -12,9 +13,32 @@ export class GitHubDraft {
   private controller = new AbortController()
   private pending = new Set<Promise<void>>()
   private failures: unknown[] = []
-  private running = false
+  private running: object | undefined
   private attempt = {}
   private readListeners = new Set<() => void>()
+  private prepareListeners = new Set<
+    (context: { attempt: object; signal: AbortSignal; sources: readonly string[] }) => Promise<void>
+  >()
+  subscribeImagePreparation = (
+    listener: (context: {
+      attempt: object
+      signal: AbortSignal
+      sources: readonly string[]
+    }) => Promise<void>
+  ): (() => void) => {
+    this.prepareListeners.add(listener)
+    return () => {
+      this.prepareListeners.delete(listener)
+    }
+  }
+  prepareImages = async (signal: AbortSignal, sources: readonly string[]): Promise<void> => {
+    const attempt = this.attempt
+    signal.throwIfAborted()
+    await Promise.all(
+      [...this.prepareListeners].map((listener) => listener({ attempt, signal, sources }))
+    )
+    signal.throwIfAborted()
+  }
   private imageListeners = new Set<(image: GitHubPreparedImage) => void>()
   onPrepared?: (body: string) => void
 
@@ -32,11 +56,16 @@ export class GitHubDraft {
     }
   }
   prepared = (body: string, image?: { source: string; url: string }): void => {
-    if (image) {
-      this.imageListeners.forEach((listener) => listener({ ...image, body, attempt: this.attempt }))
+    try {
+      if (image) {
+        this.imageListeners.forEach((listener) =>
+          listener({ ...image, body, attempt: this.attempt })
+        )
+      }
+    } finally {
+      this.change(body)
+      this.onPrepared?.(body)
     }
-    this.change(body)
-    this.onPrepared?.(body)
   }
 
   constructor(value: string, update: (body: string) => void, key: string) {
@@ -70,6 +99,7 @@ export class GitHubDraft {
   }
 
   invalidate = (): void => {
+    this.running = undefined
     this.controller.abort()
     this.controller = new AbortController()
     this.pending.clear()
@@ -113,8 +143,8 @@ export class GitHubDraft {
     if (this.running) {
       return
     }
-    this.running = true
-    this.attempt = {}
+    const attempt = {}
+    this.running = this.attempt = attempt
     const signal = this.controller.signal
     let busy = false
     try {
@@ -140,7 +170,7 @@ export class GitHubDraft {
       busy = true
       await action(this.value, signal)
     } catch (error) {
-      if (!signal.aborted) {
+      if (!signal.aborted || error instanceof GitHubImageClassificationError) {
         toast.error(
           error instanceof Error
             ? error.message
@@ -151,8 +181,10 @@ export class GitHubDraft {
         )
       }
     } finally {
-      this.running = false
-      if (busy) {
+      if (this.running === attempt) {
+        this.running = undefined
+      }
+      if (busy && !this.running) {
         setBusy(false)
       }
     }

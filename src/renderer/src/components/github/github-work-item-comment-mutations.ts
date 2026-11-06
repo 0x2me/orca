@@ -1,6 +1,7 @@
 import { prepareGitHubImages, captureGitHubRepoImageContext } from './prepare-github-images'
 export type GitHubDraftPreparation = {
   signal: AbortSignal
+  beforeUpload?: (signal: AbortSignal, sources: readonly string[]) => Promise<void>
   update: (body: string, image?: { source: string; url: string }) => void
 }
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'

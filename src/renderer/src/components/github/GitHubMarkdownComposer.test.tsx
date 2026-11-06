@@ -1,3 +1,7 @@
+import { GitHubDraft } from './use-github-draft'
+import { prepareGitHubImages } from './prepare-github-images'
+import type { GitHubImageParseRequest } from '../../../../shared/github/image-parser-protocol'
+import { BrowserImageParserFixture } from '../../../../shared/github/__fixtures__/image-parser-worker-fixture'
 // @vitest-environment happy-dom
 
 import { Editor } from '@tiptap/react'
@@ -55,6 +59,7 @@ const comment: PRComment = {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('Worker', BrowserImageParserFixture)
   addIssueComment.mockReset()
   updateIssue.mockReset().mockResolvedValue({ ok: true })
   finalRpc.mockReset().mockImplementation(async (_target, method, params) => {
@@ -108,6 +113,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  window.dispatchEvent(new Event('pagehide'))
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -143,9 +149,12 @@ function renderCommentSubmission() {
 }
 
 describe('GitHubMarkdownComposer submission', () => {
-  it.each(['button', 'shortcut'])(
-    'includes delayed pasted files in the actual owner before %s submission',
-    async (trigger) => {
+  it.each([
+    { trigger: 'button', count: 2 },
+    { trigger: 'shortcut', count: 20 }
+  ])(
+    'includes $count delayed pasted files before $trigger submission without rebuilding the editor',
+    async ({ trigger, count }) => {
       const readers: FileReader[] = []
       vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (
         this: FileReader
@@ -161,11 +170,17 @@ describe('GitHubMarkdownComposer submission', () => {
         throw new Error('Missing real editor')
       }
       const editor = element.editor
+      if (!editor.markdown) {
+        throw new Error('Missing Markdown extension')
+      }
       const parse = vi.spyOn(editor.markdown, 'parse')
       act(() => editor.commands.setTextSelection(editor.state.doc.content.size - 1))
       const clipboardData = new DataTransfer()
-      clipboardData.items.add(new File(['a'], 'first.png', { type: 'image/png' }))
-      clipboardData.items.add(new File(['b'], 'second.png', { type: 'image/png' }))
+      for (let index = 0; index < count; index++) {
+        clipboardData.items.add(
+          new File([String(index)], `screen-${index}.png`, { type: 'image/png' })
+        )
+      }
       fireEvent.paste(element, { clipboardData })
       act(() => editor.view.dispatch(editor.state.tr.insertText('prefix ', 1)))
       if (trigger === 'button') {
@@ -176,8 +191,12 @@ describe('GitHubMarkdownComposer submission', () => {
       expect(addIssueComment).not.toHaveBeenCalled()
       expect(element.getAttribute('contenteditable')).toBe('true')
       await act(async () => {
-        Object.defineProperty(readers[1], 'result', { value: 'data:image/png;base64,AQ==' })
-        readers[1].dispatchEvent(new ProgressEvent('load'))
+        for (let index = 1; index < count; index++) {
+          Object.defineProperty(readers[index], 'result', {
+            value: `data:image/png;base64,${Buffer.from([index]).toString('base64')}`
+          })
+          readers[index].dispatchEvent(new ProgressEvent('load'))
+        }
       })
       expect(addIssueComment).not.toHaveBeenCalled()
       await act(async () => {
@@ -193,7 +212,7 @@ describe('GitHubMarkdownComposer submission', () => {
       )
       const posted = addIssueComment.mock.calls[0][0].body
       expect(posted).toBe(
-        'prefix Submitted comment![](https://github.com/user-attachments/assets/a)![](https://github.com/user-attachments/assets/b)'
+        `prefix Submitted comment![](https://github.com/user-attachments/assets/a)${'![](https://github.com/user-attachments/assets/b)'.repeat(count - 1)}`
       )
       expect(posted).not.toContain('data:')
       expect(parse).not.toHaveBeenCalled()
@@ -378,4 +397,129 @@ describe('GitHubMarkdownComposer submission', () => {
       )
     }
   )
+})
+
+it('pre-indexes raw HTML once before uploading and immediately retains an uploaded URL when the next upload fails', async () => {
+  const jobs: string[] = []
+  class TrackedParser extends BrowserImageParserFixture {
+    postMessage(request: GitHubImageParseRequest) {
+      jobs.push(request.kind)
+      super.postMessage(request)
+    }
+  }
+  vi.stubGlobal('Worker', TrackedParser)
+  const original =
+    '<div>\n<img src="data:image/png;base64,AA=="><img src="data:image/png;base64,AQ==">\n</div>'
+  const changed = vi.fn()
+  const draft = new GitHubDraft(original, changed, 'owner')
+  const view = render(
+    <GitHubMarkdownComposer
+      value={original}
+      draft={draft}
+      onChange={draft.change}
+      placeholder="Description"
+    />
+  )
+  await waitFor(() => expect(view.container.querySelector('.tiptap')).not.toBeNull())
+  const element = getComposerEditor(view.container)
+  if (!('editor' in element) || !(element.editor instanceof Editor) || !element.editor.markdown) {
+    throw new Error('Missing editor')
+  }
+  const editor = element.editor
+  const parse = vi.spyOn(element.editor.markdown, 'parse')
+  const rpc = attachmentRpc.getMockImplementation()!
+  let uploads = 0
+  attachmentRpc.mockImplementation(async (...args) => {
+    if (args[1] === 'github.uploadAttachment') {
+      uploads++
+      expect(jobs).toEqual(['prepare', 'html'])
+      if (uploads === 2) {
+        throw new Error('Upload failed. Your draft is kept; try again.')
+      }
+    }
+    return rpc(...args)
+  })
+  await act(async () => {
+    await draft.submit(
+      async (body, signal) => {
+        await prepareGitHubImages({
+          body,
+          signal,
+          context: {
+            runtime: { kind: 'local' },
+            target: { kind: 'slug', owner: 'owner', repo: 'repo', host: 'github.com' }
+          },
+          update: draft.prepared,
+          beforeUpload: draft.prepareImages
+        })
+      },
+      () => {}
+    )
+  })
+  const expected =
+    '<div>\n<img src="https://github.com/user-attachments/assets/a"><img src="data:image/png;base64,AQ==">\n</div>'
+  expect(draft.value).toBe(expected)
+  expect(editor.getMarkdown()).toBe(
+    '<div>\n\n<img src="https://github.com/user-attachments/assets/a"><img src="data:image/png;base64,AQ==">\n\n</div>'
+  )
+  expect(changed).toHaveBeenCalledExactlyOnceWith(expected)
+  expect(parse).not.toHaveBeenCalled()
+  expect(jobs).toEqual(['prepare', 'html'])
+})
+
+it('fails before uploading when raw HTML replacement ranges are unavailable', async () => {
+  class UnsafeIndexParser extends BrowserImageParserFixture {
+    postMessage(request: GitHubImageParseRequest) {
+      if (request.kind !== 'html') {
+        super.postMessage(request)
+        return
+      }
+      queueMicrotask(() =>
+        this.onmessage?.(
+          new MessageEvent('message', {
+            data: {
+              id: request.id,
+              ok: true,
+              result: {
+                kind: 'html',
+                images: [[{ source: 'data:image/png;base64,AA==', start: -1, end: -1 }]]
+              }
+            }
+          })
+        )
+      )
+    }
+  }
+  vi.stubGlobal('Worker', UnsafeIndexParser)
+  const original = '<div>\n<img src="data:image/png;base64,AA==">\n</div>'
+  const draft = new GitHubDraft(original, vi.fn(), 'owner')
+  const view = render(
+    <GitHubMarkdownComposer
+      value={original}
+      draft={draft}
+      onChange={draft.change}
+      placeholder="Description"
+    />
+  )
+  await waitFor(() => expect(view.container.querySelector('.tiptap')).not.toBeNull())
+  attachmentRpc.mockClear()
+  await act(async () => {
+    await draft.submit(
+      async (body, signal) => {
+        await prepareGitHubImages({
+          body,
+          signal,
+          context: {
+            runtime: { kind: 'local' },
+            target: { kind: 'slug', owner: 'owner', repo: 'repo', host: 'github.com' }
+          },
+          update: draft.prepared,
+          beforeUpload: draft.prepareImages
+        })
+      },
+      () => {}
+    )
+  })
+  expect(attachmentRpc).not.toHaveBeenCalled()
+  expect(draft.value).toBe(original)
 })

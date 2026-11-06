@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { htmlImageDestinations } from './html-image-destinations'
 import {
+  parseMarkdownImageDestinations,
   gitHubBodyImageError,
-  markdownImageDestinations,
-  replaceMarkdownImageSource
-} from './markdown-image-destinations'
+  markdownImageDestinations
+} from './markdown-image-parser'
+import { replaceMarkdownImageDestinations } from './markdown-image-destinations'
+function replaceMarkdownImageSource(body: string, source: string, url: string) {
+  return replaceMarkdownImageDestinations(
+    body,
+    markdownImageDestinations(body),
+    new Map([[source, url]])
+  )
+}
 
 describe('GitHub image destinations', () => {
   it('replaces rendered destinations without changing titles, Unicode, code or unused definitions', () => {
@@ -47,12 +55,13 @@ describe('GitHub image destinations', () => {
     )
   })
 
-  it('scans hostile HTML in linear work and respects quoted attributes, comments and raw text', () => {
+  it('bounds HTML output work and respects quoted attributes, comments and raw text', () => {
     for (const size of [1000, 10000]) {
       const html = `<div>\n<a${' '.repeat(size)}x\n`
       const result = htmlImageDestinations(html, 0)
-      // One forward visit per input character plus tag/attribute transitions, independent of whitespace runs.
-      expect(result.steps).toBeLessThanOrEqual(2 * html.length)
+      // Output traversal and attribute slicing remain bounded by the owned HTML input.
+      expect(result.nodes).toBeLessThanOrEqual(html.length)
+      expect(result.attributeUnits).toBeLessThanOrEqual(html.length)
       expect(result.images).toEqual([])
     }
     const body =
@@ -73,3 +82,41 @@ it('preserves container prefixes when replacing a multiline HTML image', () => {
     '> <img\n> alt="Screenshot"\n> src="https://example.com/image.png">\n\n- <img\n  src="https://example.com/image.png">'
   )
 })
+
+it.each(['<!-->', '<!--->', '<!-- comment --!>'])(
+  'finds a rendered image after HTML comment termination %s',
+  (comment) => {
+    const source = 'data:image/png;base64,YQ=='
+    const body = `${comment}<img alt="Screenshot" src="${source}">`
+    expect(
+      markdownImageDestinations(body).map((image) => body.slice(image.start, image.end))
+    ).toEqual([source])
+    expect(gitHubBodyImageError(body)).toContain('not been uploaded')
+    expect(replaceMarkdownImageSource(body, source, 'https://example.com/image.png')).toBe(
+      `${comment}<img alt="Screenshot" src="https://example.com/image.png">`
+    )
+  }
+)
+
+it('uses HTML context and source order through foreign integration, inert templates and foster parenting', () => {
+  const body =
+    '<div><template><img src="data:inert"></template><svg><image src="data:foreign"/><foreignObject><img src="data:html"></foreignObject></svg><table><img src="data:first"><tr><td><img src="data:second"></td></tr></table></div>'
+  expect(
+    markdownImageDestinations(body).map((image) => body.slice(image.start, image.end))
+  ).toEqual(['data:html', 'data:first', 'data:second'])
+})
+
+it.each([10, 100])(
+  'bounds required event collection and serialization for %i distinct references',
+  (count) => {
+    const body = Array.from(
+      { length: count },
+      (_, index) =>
+        `- entry ![shot${index}][ref${index}]\n\n[ref${index}]: data:image/png;base64,YQ==\n`
+    ).join('\n')
+    const { images, stats } = parseMarkdownImageDestinations(body)
+    expect(images).toHaveLength(count)
+    expect(stats.eventVisits).toBeLessThan(body.length * 2)
+    expect(stats.serializedUnits).toBeLessThan(body.length)
+  }
+)

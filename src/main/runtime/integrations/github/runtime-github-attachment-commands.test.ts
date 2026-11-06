@@ -1,3 +1,6 @@
+import type * as NodeFs from 'node:fs'
+import { NodeImageParserFixture } from '../../../../shared/github/__fixtures__/image-parser-worker-fixture'
+import type { GitHubImageParseRequest } from '../../../../shared/github/image-parser-protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as GhUtils from '../../../github/gh-utils'
 import { RuntimeGitHubIssueCommentCommands } from './runtime-github-issue-comment-commands'
@@ -10,7 +13,29 @@ import { GITHUB_ATTACHMENT_METHODS } from '../../rpc/methods/github-attachment-m
 import type { Repo } from '../../../../shared/repo-types'
 import type { GitHubAttachmentTarget } from '../../../../shared/rpc-contract/github-attachment-params'
 
-const mocks = vi.hoisted(() => ({ gh: vi.fn(), remote: vi.fn(), binding: vi.fn(), claim: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  gh: vi.fn(),
+  remote: vi.fn(),
+  binding: vi.fn(),
+  claim: vi.fn(),
+  parseStarted: vi.fn()
+}))
+class HeldNodeParser extends NodeImageParserFixture {
+  postMessage(request: GitHubImageParseRequest): void {
+    mocks.parseStarted(request, () => super.postMessage(request))
+  }
+}
+vi.mock('../../../worker-threads/worker-thread-spawn', () => ({
+  spawnWorkerThread: () => new HeldNodeParser()
+}))
+vi.mock('node:fs', async (original) => {
+  const fs = await original<typeof NodeFs>()
+  return {
+    ...fs,
+    existsSync: (path: string) =>
+      path.endsWith('image-parser-worker-entry.js') || fs.existsSync(path)
+  }
+})
 vi.mock('../../../github/gh-utils', async (original) => ({
   ...(await original<typeof GhUtils>()),
   ghExecFileAsync: mocks.gh,
@@ -51,6 +76,7 @@ async function invoke(name: string, params: unknown) {
 
 beforeEach(() => {
   vi.useFakeTimers()
+  mocks.parseStarted.mockReset().mockImplementation((_request, respond) => respond())
   _resetOriginGitHubApiRepositoryCache()
   repo = {
     id: 'repo',
@@ -79,7 +105,7 @@ beforeEach(() => {
     getLocalGitArgs: () => (distro ? [{ wslDistro: distro }] : []),
     resolveHostedReviewTarget: async () => ({ repo, repoPath: '/worktree' })
   })
-  // SAFETY: these production method handlers use only the supplied command surface and caller fields.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: these production handlers use only the supplied runtime methods and caller fields.
   context = {
     caller: { kind: 'desktop' },
     connectionId: 'renderer-1',
@@ -252,3 +278,34 @@ describe('GitHub attachment preparation and publication', () => {
     })
   })
 })
+
+it.each(['binding', 'source'])(
+  'refuses %s drift while authoritative parsing is pending before combined mutation effects',
+  async (change) => {
+    const { preparationId } = await upload()
+    const started = Promise.withResolvers<() => void>()
+    mocks.parseStarted.mockImplementationOnce((_request, respond) => started.resolve(respond))
+    mocks.gh.mockClear()
+    const pending = invoke('github.updateIssue', {
+      repo: 'repo',
+      number: 42,
+      updates: {
+        body: '![screen](https://github.com/user-attachments/assets/image)',
+        title: 'Changed',
+        state: 'closed'
+      },
+      attachmentPreparationId: preparationId
+    })
+    const respond = await started.promise
+    repo =
+      change === 'binding'
+        ? { ...repo, ghAccount: { host: 'github.com', user: 'account-b' } }
+        : { ...repo, issueSourcePreference: 'origin' }
+    respond()
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining('draft is kept')
+    })
+    expect(mocks.gh).not.toHaveBeenCalled()
+  }
+)

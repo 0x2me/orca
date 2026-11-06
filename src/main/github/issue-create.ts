@@ -1,4 +1,4 @@
-import { gitHubBodyImageError } from '../../shared/github/markdown-image-destinations'
+import { gitHubBodyImageError } from './github-body-validation'
 import type {
   GitHubCreateIssueFields,
   GitHubCreateIssueResult
@@ -27,7 +27,7 @@ export async function createIssue(
   fields?: GitHubCreateIssueFields,
   localGitOptions: LocalGitExecOptions = {}
 ): Promise<GitHubCreateIssueResult> {
-  const imageError = gitHubBodyImageError(body)
+  const imageError = await gitHubBodyImageError(body, localGitOptions)
   if (imageError) {
     return { ok: false, error: imageError }
   }

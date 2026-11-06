@@ -256,7 +256,18 @@ export class RuntimeGitHubAttachmentCommands {
       current.options,
       () =>
         withGitHubAttachmentExecution(
-          { repoPath, connectionId, wslDistro: current.options.wslDistro ?? null, execution },
+          {
+            repoPath,
+            connectionId,
+            wslDistro: current.options.wslDistro ?? null,
+            execution,
+            revalidate: async () => {
+              const currentTarget = await this.readTarget(target)
+              if (JSON.stringify(currentTarget.selection) !== JSON.stringify(state.selection)) {
+                throw changed()
+              }
+            }
+          },
           action
         ),
       state.selection?.ghAccount

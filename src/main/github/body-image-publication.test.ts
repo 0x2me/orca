@@ -1,3 +1,5 @@
+import type * as NodeFs from 'node:fs'
+import { NodeImageParserFixture } from '../../shared/github/__fixtures__/image-parser-worker-fixture'
 import { beforeEach, expect, it, vi } from 'vitest'
 import type * as GhUtils from './gh-utils'
 import { createIssue } from './issue-create'
@@ -13,6 +15,17 @@ import {
   updateIssueCommentBySlug
 } from './project-view/issue-comment-mutations'
 
+vi.mock('../worker-threads/worker-thread-spawn', () => ({
+  spawnWorkerThread: () => new NodeImageParserFixture()
+}))
+vi.mock('node:fs', async (original) => {
+  const fs = await original<typeof NodeFs>()
+  return {
+    ...fs,
+    existsSync: (path: string) =>
+      path.endsWith('image-parser-worker-entry.js') || fs.existsSync(path)
+  }
+})
 const effects = vi.hoisted(() => ({ gh: vi.fn(), rest: vi.fn() }))
 vi.mock('./gh-utils', async (original) => ({
   ...(await original<typeof GhUtils>()),
@@ -68,7 +81,9 @@ const writers = [
 it.each(writers.map((write, index) => ({ write, index })))(
   'refuses an unresolved image before any public effect in writer $index',
   async ({ write }) => {
-    expect(await write()).toMatchObject({ ok: false })
+    const result = await write()
+    expect(JSON.stringify(result)).toContain('not been uploaded')
+    expect(result).toMatchObject({ ok: false })
     expect(effects.gh).not.toHaveBeenCalled()
     expect(effects.rest).not.toHaveBeenCalled()
   }

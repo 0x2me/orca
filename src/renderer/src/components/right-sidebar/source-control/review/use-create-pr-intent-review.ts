@@ -205,6 +205,7 @@ export function useSourceControlCreatePrIntentReview({
           },
           {
             signal: attachmentSignal,
+            beforeUpload: attachmentDraft.prepareImages,
             update: (body, image) => {
               if (!ownsRun()) {
                 throw new Error('The review target changed. Try again.')
@@ -308,6 +309,4 @@ export function useSourceControlCreatePrIntentReview({
   return { createHostedReviewForCreatePrIntent }
 }
 
-export type SourceControlCreatePrIntentReview = ReturnType<
-  typeof useSourceControlCreatePrIntentReview
->
+export type { SourceControlCreatePrIntentReview } from './create-pr-intent-review-input'

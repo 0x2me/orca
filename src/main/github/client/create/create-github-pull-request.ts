@@ -1,5 +1,5 @@
 import { preparedGitHubExecution } from '../../attachment-publication-execution'
-import { gitHubBodyImageError } from '../../../../shared/github/markdown-image-destinations'
+import { gitHubBodyImageError } from '../../github-body-validation'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
 import { hostedReviewSshConnectionId } from '../../../source-control/hosted-review-execution-host'
 import type {
@@ -43,7 +43,7 @@ export async function createGitHubPullRequest(
     }
   }
 
-  const imageError = gitHubBodyImageError(input.body)
+  const imageError = await gitHubBodyImageError(input.body)
   if (imageError) {
     return { ok: false, code: 'validation', error: imageError }
   }
@@ -95,18 +95,18 @@ export async function createGitHubPullRequest(
         }
       }
 
+      const body =
+        input.useTemplate && !input.body?.trim()
+          ? await readPullRequestTemplate(repoPath, connectionId)
+          : (input.body ?? '')
+      const templateImageError = body === input.body ? null : await gitHubBodyImageError(body)
+      if (templateImageError) {
+        return { ok: false, code: 'validation', error: templateImageError }
+      }
       const tempDir = await mkdtemp(join(tmpdir(), 'orca-pr-body-'))
       await acquire()
       const bodyPath = join(tempDir, 'body.md')
       try {
-        const body =
-          input.useTemplate && !input.body?.trim()
-            ? await readPullRequestTemplate(repoPath, connectionId)
-            : (input.body ?? '')
-        const templateImageError = gitHubBodyImageError(body)
-        if (templateImageError) {
-          return { ok: false, code: 'validation', error: templateImageError }
-        }
         await writeFile(bodyPath, body, 'utf8')
         const createArgs = [
           'pr',

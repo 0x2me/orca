@@ -136,10 +136,12 @@ export function useSourceControlHostedReviewCreation({
             const result = stacked
               ? await createStackedHostedReview(activeRepo.path, createInput, {
                   signal,
+                  beforeUpload: attachmentDraft.prepareImages,
                   update: attachmentDraft.prepared
                 })
               : await createHostedReview(activeRepo.path, createInput, {
                   signal,
+                  beforeUpload: attachmentDraft.prepareImages,
                   update: attachmentDraft.prepared
                 })
 

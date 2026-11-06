@@ -1,4 +1,5 @@
-import * as imageDestinations from '../../../../shared/github/markdown-image-destinations'
+import { BrowserImageParserFixture } from '../../../../shared/github/__fixtures__/image-parser-worker-fixture'
+import * as imageDestinations from '../../../../shared/github/markdown-image-parser'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { GitHubDraft } from './use-github-draft'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/runtime-environment-revision'
@@ -34,6 +35,7 @@ function deferred<T>() {
 
 describe('GitHub image submission', () => {
   beforeEach(() => {
+    vi.stubGlobal('Worker', BrowserImageParserFixture)
     rpc.mockReset()
     errorToast.mockReset()
     rpc.mockImplementation(async (_target, method) => {
@@ -110,6 +112,25 @@ describe('GitHub image submission', () => {
     expect(uploads).toBe(3)
   })
 
+  it('prepares the rendered image after HTML comment termination without changing surrounding source', async () => {
+    const update = vi.fn()
+    const body = '<!-- comment --!><img src="data:image/png;base64,YQ==">'
+    const ready = await prepareGitHubImages({
+      body,
+      context,
+      signal: new AbortController().signal,
+      update
+    })
+    expect(ready).toBe('<!-- comment --!><img src="https://github.com/user-attachments/assets/a">')
+    expect(update).toHaveBeenCalledWith(
+      '<!-- comment --!><img src="https://github.com/user-attachments/assets/a">',
+      {
+        source: 'data:image/png;base64,YQ==',
+        url: 'https://github.com/user-attachments/assets/a'
+      }
+    )
+  })
+
   it('preflights all images before upload and never fetches an arbitrary blob or local path', async () => {
     await expect(
       prepareGitHubImages({
@@ -183,9 +204,22 @@ describe('GitHub image submission', () => {
     const publish = vi.fn()
     const pending = draft.submit(publish, () => {})
     draft.sync('', () => {}, 'replacement')
+    const replacement = deferred<void>()
+    const busy = vi.fn()
+    const successor = draft.submit(async (body) => {
+      publish(body)
+      await replacement.promise
+    }, busy)
     read.resolve()
     await pending
-    expect(publish).not.toHaveBeenCalled()
+    await draft.submit(async () => {
+      publish('duplicate')
+    }, busy)
+    expect(publish).toHaveBeenCalledExactlyOnceWith('')
+    expect(busy.mock.calls).toEqual([[true]])
+    replacement.resolve()
+    await successor
+    expect(busy.mock.calls).toEqual([[true], [false]])
     expect(draft.value).toBe('')
   })
 

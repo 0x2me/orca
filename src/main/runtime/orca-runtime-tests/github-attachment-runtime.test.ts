@@ -10,6 +10,7 @@ it.each(['wsl', 'windows-host'] as const)(
   'projects the owning Windows runtime selection for a paired client with %s Git',
   async (git) => {
     setPlatform('win32')
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the existing runtime fixture provides every store method used by this projection.
     const runtime = new OrcaRuntimeService({
       ...store,
       getProjects: () => [
@@ -53,6 +54,7 @@ it.each([null, 'ssh-1'])(
   'preserves local shared-link exclusions and SSH isolation for an image-bearing hosted creation (%s)',
   async (connectionId) => {
     const repo = { ...store.getRepos()[0], symlinkPaths: ['shared-cache'], connectionId }
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the existing runtime fixture provides every store method used by this projection.
     const runtime = new OrcaRuntimeService({
       ...store,
       getRepos: () => [repo],

@@ -188,10 +188,12 @@ export function useChecksPanelCreateReview(model: ChecksPanelCreateReviewInput) 
             const result = stacked
               ? await createStackedHostedReview(repo.path, createInput, {
                   signal,
+                  beforeUpload: attachmentDraft.prepareImages,
                   update: attachmentDraft.prepared
                 })
               : await createHostedReview(repo.path, createInput, {
                   signal,
+                  beforeUpload: attachmentDraft.prepareImages,
                   update: attachmentDraft.prepared
                 })
             // Read before linking changes the panel context key.

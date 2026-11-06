@@ -1,7 +1,10 @@
 import type { Worker } from 'node:worker_threads'
 import { getEventListeners } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { WorkerThreadRequestQueue } from './worker-thread-request-queue'
+import {
+  WorkerThreadRequestQueue,
+  type WorkerThreadRequestQueueOptions
+} from './worker-thread-request-queue'
 
 type Request = { id: number; label: string }
 type Response = { id: number; label: string }
@@ -63,10 +66,13 @@ const MAX_CONSECUTIVE_DEATHS = 3
 
 function makeQueue(
   workers: FakeWorker[],
-  options: { awaitRetirement?: boolean; makeWorker?: () => FakeWorker } = {}
+  options: Pick<
+    WorkerThreadRequestQueueOptions<Request>,
+    'awaitRetirement' | 'waitForRetirement' | 'enqueueBudget' | 'queueCap'
+  > & { makeWorker?: () => FakeWorker } = {}
 ): WorkerThreadRequestQueue<Request, Response> {
   return new WorkerThreadRequestQueue<Request, Response>({
-    awaitRetirement: options.awaitRetirement,
+    ...options,
     factory: () => {
       const worker = options.makeWorker?.() ?? new FakeWorker()
       workers.push(worker)
@@ -523,5 +529,82 @@ describe('WorkerThreadRequestQueue', () => {
       await expect(next).resolves.toMatchObject({ label: 'next' })
       queue.dispose()
     })
+  })
+})
+
+describe('enqueue-budget worker requests', () => {
+  const options = {
+    awaitRetirement: true,
+    waitForRetirement: true,
+    enqueueBudget: { maxQueuedBytes: 8, describeFull: () => 'busy' },
+    queueCap: { maxQueuedCalls: 4, describeFull: () => 'busy' }
+  }
+  it('preserves a successor across active retirement and never builds cancelled queued input', async () => {
+    vi.useFakeTimers()
+    const workers: FakeWorker[] = []
+    const queue = makeQueue(workers, options)
+    const active = new AbortController()
+    const cancelled = new AbortController()
+    const first = settle(queue.dispatch((id) => ({ id, label: 'first' }), 2_000, active.signal))
+    const retirement = Promise.withResolvers<number>()
+    workers[0].exit = retirement.promise
+    const successor = queue.dispatch(
+      (id) => ({ id, label: 'survivor' }),
+      2_000,
+      undefined,
+      undefined,
+      4
+    )
+    const build = vi.fn((id: number) => ({ id, label: 'never-built' }))
+    const abandoned = settle(queue.dispatch(build, 2_000, cancelled.signal, undefined, 4))
+    cancelled.abort(new Error('queued cancelled'))
+    await expect(abandoned).resolves.toMatchObject({ message: 'queued cancelled' })
+    expect(build).not.toHaveBeenCalled()
+    active.abort(new Error('active cancelled'))
+    await expect(first).resolves.toMatchObject({ message: 'active cancelled' })
+    expect(workers).toHaveLength(1)
+    workers[0].respond()
+    retirement.resolve(0)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(labels(workers[1])).toEqual(['survivor'])
+    workers[1].respond()
+    await expect(successor).resolves.toEqual({ id: 2, label: 'survivor' })
+    queue.dispose()
+    vi.useRealTimers()
+  })
+
+  it('expires total queue and active budgets without poisoning an unrelated successor', async () => {
+    vi.useFakeTimers()
+    const workers: FakeWorker[] = []
+    const queue = makeQueue(workers, options)
+    const first = settle(queue.dispatch((id) => ({ id, label: 'first' }), 1_000))
+    const queued = settle(queue.dispatch((id) => ({ id, label: 'expires-in-queue' }), 500))
+    const survivor = queue.dispatch((id) => ({ id, label: 'survivor' }), 2_000)
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(queued).resolves.toMatchObject({ message: 'timed out after 500ms' })
+    expect(labels(workers[0])).toEqual(['first'])
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(first).resolves.toMatchObject({ message: 'timed out after 1000ms' })
+    expect(labels(workers[1])).toEqual(['survivor'])
+    workers[1].respond()
+    await expect(survivor).resolves.toMatchObject({ label: 'survivor' })
+    queue.dispose()
+    vi.useRealTimers()
+  })
+
+  it('bounds queued bytes before construction while admitting a large idle input', async () => {
+    const workers: FakeWorker[] = []
+    const queue = makeQueue(workers, options)
+    const active = settle(
+      queue.dispatch((id) => ({ id, label: 'large-idle' }), 2_000, undefined, undefined, 100)
+    )
+    const waiting = settle(
+      queue.dispatch((id) => ({ id, label: 'eight-bytes' }), 2_000, undefined, undefined, 8)
+    )
+    const build = vi.fn((id: number) => ({ id, label: 'too-much-waiting' }))
+    await expect(queue.dispatch(build, 2_000, undefined, undefined, 2)).rejects.toThrow('busy')
+    expect(build).not.toHaveBeenCalled()
+    queue.dispose()
+    await Promise.all([active, waiting])
   })
 })

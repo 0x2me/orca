@@ -32,6 +32,10 @@ export class LazyWorkerThreadHost<TResponse> {
     return this.retiring !== null
   }
 
+  get retirement(): Promise<void> | null {
+    return this.retiring
+  }
+
   /** Returns null if spawning fails or a previous worker is still retiring. */
   ensure(): WorkerRequestTransport | null {
     if (this.worker) {

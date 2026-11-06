@@ -1,3 +1,4 @@
+import { WORKER_THREAD_ENTRY_NAMES } from './worker-thread-entry-names'
 import { spawn } from 'node:child_process'
 import { isBuiltin } from 'node:module'
 import { join } from 'node:path'
@@ -51,20 +52,6 @@ const PLAIN_NODE_ENTRY_NAMES = [
 ] as const
 
 // Electron is unavailable in main-process worker threads too (verified Electron 43); scan their graphs rather than trusting entry comments.
-const WORKER_THREAD_ENTRY_NAMES = [
-  'stt-worker',
-  'warp-theme-parser-worker',
-  'foreign-sqlite-reader-entry',
-  'main-thread-hang-watchdog-entry',
-  'port-scan-command-worker-entry',
-  'command-path-directory-worker-entry',
-  'worker-thread-child-process-entry',
-  ...(['usage-scan', 'workspace-space-scan'] as const).map((n) => `${n}-worker-entry` as const),
-  'claude-profile-setup-worker-entry',
-  ...(['backup', 'writer'] as const).map((kind) => `profile-state-${kind}-worker-entry` as const),
-  'plugin-source-transpile-worker-entry'
-] as const
-
 export const GUARDED_ENTRY_NAMES = [
   ...PLAIN_NODE_ENTRY_NAMES,
   ...WORKER_THREAD_ENTRY_NAMES

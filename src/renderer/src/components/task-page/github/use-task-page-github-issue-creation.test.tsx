@@ -1,3 +1,9 @@
+import { processGitHubImageParse } from '../../../../../shared/github/image-parser-worker'
+import type {
+  GitHubImageParseRequest,
+  GitHubImageParseResponse
+} from '../../../../../shared/github/image-parser-protocol'
+import { toast } from 'sonner'
 import { GitHubDraft } from '@/components/github/use-github-draft'
 // @vitest-environment happy-dom
 import { act, useRef } from 'react'
@@ -24,7 +30,12 @@ import type { AppState } from '@/store/types'
 import type { StoreApi } from 'zustand/vanilla'
 
 const holders = vi.hoisted((): { store: StoreApi<AppState> | null } => ({ store: null }))
-const mocks = vi.hoisted(() => ({ createIssue: vi.fn(), workItem: vi.fn(), updateRepo: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  createIssue: vi.fn(),
+  workItem: vi.fn(),
+  updateRepo: vi.fn(),
+  attachment: vi.fn()
+}))
 vi.mock('@/store/index', async () => {
   const { useStore } = await import('zustand')
   return {
@@ -34,6 +45,7 @@ vi.mock('@/store/index', async () => {
     )
   }
 })
+vi.mock('@/runtime/github-attachment-rpc', () => ({ callGitHubAttachmentRpc: mocks.attachment }))
 vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn() }))
 vi.mock('@/components/github/GitHubMarkdownComposer', () => ({
   GitHubMarkdownComposer: () => null
@@ -55,7 +67,7 @@ function item(number: number): GitHubWorkItem {
     repoId: 'repo-1'
   }
 }
-function setup() {
+function setup(body = 'Body') {
   const store = createUIStore()
   store.setState({ workItemsCache: {} })
   holders.store = store
@@ -77,6 +89,7 @@ function setup() {
     fetchReposForAllHosts: vi.fn().mockResolvedValue(undefined)
   })
   const setter = vi.fn()
+  const draft = new GitHubDraft(body, setter, 'repo-1')
   const rendered = renderHook(() => {
     const detail = useTaskPageGitHubDetail({
       pageData: useStore(store, (s) => s.taskPageData),
@@ -109,7 +122,7 @@ function setup() {
       newIssueTitle: 'Created issue',
       setNewIssueTitle: setter,
       newIssueBody: 'Body',
-      newIssueDraftController: new GitHubDraft('Body', setter, 'repo-1'),
+      newIssueDraftController: draft,
       setNewIssueBody: setter,
       newIssueLabels: [],
       setNewIssueLabels: setter,
@@ -125,7 +138,7 @@ function setup() {
       newIssueRuntimeTarget: null
     })
   })
-  return { ...rendered, store, repo, setter }
+  return { ...rendered, store, repo, setter, draft }
 }
 
 beforeEach(() => {
@@ -142,6 +155,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  window.dispatchEvent(new Event('pagehide'))
   vi.unstubAllGlobals()
   holders.store = null
 })
@@ -261,4 +275,91 @@ describe('New Issue source-save dependency', () => {
       await held.promise
     })
   })
+})
+
+class HeldParser {
+  static started = Promise.withResolvers<HeldParser>()
+  onmessage: ((event: MessageEvent<GitHubImageParseResponse>) => void) | null = null
+  onerror = null
+  onmessageerror = null
+  request?: GitHubImageParseRequest
+  postMessage(request: GitHubImageParseRequest) {
+    this.request = request
+    HeldParser.started.resolve(this)
+  }
+  terminate() {}
+  finish(fail = false) {
+    if (!this.request) {
+      throw new Error('Missing parser request')
+    }
+    this.onmessage?.(
+      new MessageEvent('message', {
+        data: fail
+          ? {
+              id: this.request.id,
+              ok: false,
+              error: 'Parser unavailable. Your draft is kept; try again.'
+            }
+          : processGitHubImageParse(this.request)
+      })
+    )
+  }
+}
+
+it.each([
+  ['![remote](https://example.com/image.png)', true],
+  ['`![example](data:image/png;base64,AA==)`', true],
+  ['![local](data:image/png;base64,AA==)', false]
+])(
+  'preserves accepted snapshot ownership across delayed classification and reset: %s',
+  async (body, publishes) => {
+    HeldParser.started = Promise.withResolvers<HeldParser>()
+    vi.stubGlobal('Worker', HeldParser)
+    const { result, draft } = setup(body)
+    let submission!: Promise<void>
+    act(() => {
+      submission = result.current.handleCreateNewIssue()
+    })
+    const parser = await HeldParser.started.promise
+    act(() => {
+      draft.sync('Replacement draft', vi.fn(), 'repo-2')
+    })
+    await act(async () => {
+      parser.finish()
+      await submission
+    })
+    if (publishes) {
+      expect(mocks.createIssue).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ body, repoId: 'repo-1' })
+      )
+    } else {
+      expect(mocks.createIssue).not.toHaveBeenCalled()
+    }
+    expect(mocks.attachment).not.toHaveBeenCalled()
+    expect(draft.value).toBe('Replacement draft')
+  }
+)
+
+it('reports a captured classification failure even after draft-only reset', async () => {
+  HeldParser.started = Promise.withResolvers<HeldParser>()
+  vi.stubGlobal('Worker', HeldParser)
+  const { result, draft } = setup('![local](data:image/png;base64,AA==)')
+  let submission!: Promise<void>
+  act(() => {
+    submission = result.current.handleCreateNewIssue()
+  })
+  const parser = await HeldParser.started.promise
+  act(() => {
+    draft.sync('Replacement draft', vi.fn(), 'repo-2')
+  })
+  await act(async () => {
+    parser.finish(true)
+    await submission
+  })
+  expect(mocks.createIssue).not.toHaveBeenCalled()
+  expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+    'Parser unavailable. Your draft is kept; try again.'
+  )
+  expect(mocks.attachment).not.toHaveBeenCalled()
+  expect(draft.value).toBe('Replacement draft')
 })

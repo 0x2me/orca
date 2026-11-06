@@ -12,17 +12,14 @@ import type { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
 import type { GitHubAttachmentTarget } from '../../../../shared/rpc-contract/github-attachment-params'
-import {
-  assertGitHubImage,
-  GITHUB_IMAGE_ATTACHMENT_CAPABILITY
-} from '../../../../shared/github/image-attachment'
-import { isValidBase64 } from '../../../../shared/rpc-contract/clipboard-params'
-import {
-  markdownImageDestinations,
-  isUnresolvedGitHubImage,
-  replaceMarkdownImageDestinations
-} from '../../../../shared/github/markdown-image-destinations'
+import { GITHUB_IMAGE_ATTACHMENT_CAPABILITY } from '../../../../shared/github/image-attachment'
+import { replaceMarkdownImageDestinations } from '../../../../shared/github/markdown-image-destinations'
 import { REMOTE_RUNTIME_MAX_INBOUND_REQUEST_JSON_BYTES } from '../../../../shared/remote-runtime/remote-runtime-memory-limits'
+import { classifyGitHubImages } from './image-parser/github-image-parser'
+import {
+  preparedImageDestinations,
+  type GitHubImagePreparation
+} from '../../../../shared/github/image-parser-protocol'
 import { completeClipboardImageUpload } from '@/lib/clipboard-image-chunks'
 import { callGitHubAttachmentRpc } from '@/runtime/github-attachment-rpc'
 
@@ -104,23 +101,6 @@ export async function captureGitHubRepoImageContext(
   })
 }
 
-function imageData(source: string): { contentType: string; base64: string; fileName: string } {
-  const match = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]*)$/i.exec(source)
-  if (!match || !isValidBase64(match[2])) {
-    throw new Error('This image cannot be uploaded. Paste it again, or use an image URL.')
-  }
-  const contentType = match[1].toLowerCase()
-  const base64 = match[2]
-  const bytes =
-    Math.floor((base64.length * 3) / 4) - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0)
-  assertGitHubImage(contentType, bytes)
-  return {
-    contentType,
-    base64,
-    fileName: `image.${contentType === 'image/svg+xml' ? 'svg' : contentType.slice(6)}`
-  }
-}
-
 export function assertGitHubBodyFitsTransport(body: string): void {
   // Reserve room for selectors and the authenticated request envelope.
   if (
@@ -133,29 +113,30 @@ export function assertGitHubBodyFitsTransport(body: string): void {
 
 export async function prepareGitHubImages(args: {
   body: string
-  destinations?: ReturnType<typeof markdownImageDestinations>
+  classification?: GitHubImagePreparation
+  beforeUpload?: (signal: AbortSignal, sources: readonly string[]) => Promise<void>
   context: GitHubImageUploadContext
   update: (body: string, image?: { source: string; url: string }) => void
   signal: AbortSignal
 }): Promise<string> {
   let body = args.body
-  const destinations = args.destinations ?? markdownImageDestinations(body)
+  const classification = args.classification ?? (await classifyGitHubImages(body))
+  const sources = classification.sources.filter((source) => source.upload)
+  const destinations = preparedImageDestinations(classification)
   const replacements = new Map<string, string>()
-  const sources = [
-    ...new Set(destinations.map((image) => image.source).filter(isUnresolvedGitHubImage))
-  ]
   args.context.attachmentPreparationId = undefined
   if (!sources.length) {
     return body
   }
   args.signal.throwIfAborted()
+  await args.beforeUpload?.(
+    args.signal,
+    sources.map((image) => image.source)
+  )
+  args.signal.throwIfAborted()
   const captured = await captureGitHubImageContext(args.context)
   args.context.runtime = captured.runtime
   args.context.rpcOptions = captured.rpcOptions
-  const images = new Map(sources.map((source) => [source, imageData(source)]))
-  if (destinations.some((image) => isUnresolvedGitHubImage(image.source) && image.start < 0)) {
-    throw new Error('This image cannot be replaced safely. Paste it again, or use an image URL.')
-  }
   if (sources.length) {
     const statusSignal = AbortSignal.any([args.signal, AbortSignal.timeout(30_000)])
     const status = await callGitHubAttachmentRpc<RuntimeStatus>(
@@ -198,9 +179,12 @@ export async function prepareGitHubImages(args: {
   } else if (args.context.runtime.kind === 'local') {
     args.context.target = { ...args.context.target, wakeWslDistro: true }
   }
-  for (const source of sources) {
+  for (const { source, upload: image } of sources) {
     args.signal.throwIfAborted()
-    const image = images.get(source)!
+    if (!image) {
+      continue
+    }
+    const base64 = source.slice(image.base64Start)
     const stagingDeadline = Date.now() + 120_000
     const stagingSignal = AbortSignal.any([args.signal, AbortSignal.timeout(120_000)])
     const stage = <T>(method: string, params: unknown): Promise<T> =>
@@ -213,10 +197,10 @@ export async function prepareGitHubImages(args: {
         args.context.rpcOptions
       )
     const { uploadId } = await stage<{ uploadId: string }>('clipboard.startImageUpload', {
-      expectedBase64Length: image.base64.length,
+      expectedBase64Length: base64.length,
       fileName: image.fileName
     })
-    const result = await completeClipboardImageUpload(image.base64, uploadId, stage, async () => {
+    const result = await completeClipboardImageUpload(base64, uploadId, stage, async () => {
       const signal = AbortSignal.any([args.signal, AbortSignal.timeout(135_000)])
       return callGitHubAttachmentRpc<{ url: string; preparationId: string }>(
         args.context.runtime,

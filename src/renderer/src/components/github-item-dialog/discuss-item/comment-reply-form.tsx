@@ -51,7 +51,11 @@ export function CommentReplyForm({
           return
         }
         try {
-          const ok = await onSubmit(bodyState.body, { signal, update: draft.prepared })
+          const ok = await onSubmit(bodyState.body, {
+            signal,
+            beforeUpload: draft.prepareImages,
+            update: draft.prepared
+          })
           if (!mountedRef.current) {
             return
           }

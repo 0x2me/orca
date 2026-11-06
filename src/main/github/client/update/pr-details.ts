@@ -1,4 +1,4 @@
-import { gitHubBodyImageError } from '../../../../shared/github/markdown-image-destinations'
+import { gitHubBodyImageError } from '../../github-body-validation'
 import { invalidateReviewLookupsAfterPRMutation } from '../../pr-mutation-review-invalidation'
 import {
   ghExecFileAsync,
@@ -70,7 +70,7 @@ export async function updatePRDetails(
   prRepo?: GitHubApiRepository | null,
   localGitOptions: LocalGitExecOptions = {}
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const imageError = gitHubBodyImageError(updates.body)
+  const imageError = await gitHubBodyImageError(updates.body, localGitOptions)
   if (imageError) {
     return { ok: false, error: imageError }
   }

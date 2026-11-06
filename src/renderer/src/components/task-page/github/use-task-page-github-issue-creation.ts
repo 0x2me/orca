@@ -1,7 +1,4 @@
-import {
-  markdownImageDestinations,
-  isUnresolvedGitHubImage
-} from '../../../../../shared/github/markdown-image-destinations'
+import { classifyGitHubImages } from '@/components/github/image-parser/github-image-parser'
 import { prepareGitHubImages, gitHubImageContext } from '@/components/github/prepare-github-images'
 import type { TaskPageWorkspaceActionsModel } from '../use-task-page-workspace-actions'
 import { useCallback } from 'react'
@@ -70,8 +67,8 @@ export function useTaskPageGitHubIssueCreation<Model extends TaskPageGitHubIssue
         if (!title || newIssueSubmitting) {
           return
         }
-        const destinations = markdownImageDestinations(draftBody)
-        const imageAttempt = destinations.some((image) => isUnresolvedGitHubImage(image.source))
+        const classification = await classifyGitHubImages(draftBody)
+        const imageAttempt = classification.sources.some((image) => image.upload)
         try {
           const sourceReady = await useAppStore
             .getState()
@@ -98,9 +95,10 @@ export function useTaskPageGitHubIssueCreation<Model extends TaskPageGitHubIssue
           })
           const preparedBody = await prepareGitHubImages({
             body: draftBody,
-            destinations,
+            classification,
             signal,
             context: imageContext,
+            beforeUpload: newIssueDraftController.prepareImages,
             update: newIssueDraftController.prepared
           })
           if (imageAttempt) {
