@@ -147,6 +147,18 @@ export class ProfilePreferences {
     updatePersistedUI(getUIUpdateOperations(this), updates)
   }
 
+  reopenChatUiLaunchTip(): void {
+    const { runtime, scheduling } = this[profilePreferencesContext]
+    if (!runtime.state.ui.featureTipsSeenIds?.includes('chat-ui-here')) {
+      return
+    }
+    runtime.state.ui.featureTipsSeenIds = runtime.state.ui.featureTipsSeenIds?.filter(
+      (id) => id !== 'chat-ui-here'
+    )
+    scheduleSave(scheduling, ['ui'])
+    notifyUIChanged(this)
+  }
+
   recordFeatureInteraction(id: FeatureInteractionId): PersistedState['ui'] {
     return recordFeatureInteractionOperation(getFeatureInteractionOperations(this), id)
   }

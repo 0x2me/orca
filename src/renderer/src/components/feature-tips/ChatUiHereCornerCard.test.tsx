@@ -50,7 +50,11 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function renderCard(cohort?: ChatUiLaunchTipCohort, buttonEmphasis?: 'normal' | 'swapped'): void {
+function renderCard(
+  cohort?: ChatUiLaunchTipCohort,
+  buttonEmphasis?: 'normal' | 'swapped',
+  rollout?: 'control' | 'treatment'
+): void {
   const settings = createGlobalSettingsFixture({ agentDefaultSurface: 'terminal' })
   act(() =>
     useAppStore.setState({
@@ -62,6 +66,7 @@ function renderCard(cohort?: ChatUiLaunchTipCohort, buttonEmphasis?: 'normal' | 
           existedBeforeTelemetryRelease: settings.telemetry?.existedBeforeTelemetryRelease ?? true,
           ...settings.telemetry,
           chatUiLaunchTipCohort: cohort,
+          chatUiLaunchTipRolloutCohort: rollout,
           chatUiLaunchTipButtonEmphasis: buttonEmphasis
         }
       }
@@ -87,6 +92,17 @@ function button(label: string): HTMLButtonElement {
 }
 
 describe('Chat UI corner card', () => {
+  it('attributes adoption by a promoted control to the expansion phase', async () => {
+    renderCard('control', 'normal', 'treatment')
+    await act(async () => button('Use Chat UI').click())
+    expect(track).toHaveBeenCalledWith('chat_ui_feature_tip_action', {
+      launch_tip_experiment_version: 'corner-card-v3',
+      variant: 'chat_ui_off',
+      action: 'use_chat_ui'
+    })
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
   it('keeps the card open with a retry when the save fails', async () => {
     updateSettingsOrThrow.mockRejectedValueOnce(new Error('disk unavailable'))
     await act(async () => button('Use Chat UI').click())

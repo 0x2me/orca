@@ -405,6 +405,51 @@ it.each([true, false])(
   }
 )
 
+it.each([
+  { draw: 3, cohort: 'control' },
+  { draw: 4, cohort: 'treatment' }
+] as const)(
+  'reopens an old control once for a fresh $cohort exposure',
+  async ({ draw, cohort }) => {
+    const env = stashAndClearConsentEnv()
+    const random = vi
+      .mocked(crypto.randomInt)
+      .mockReset()
+      .mockImplementation(() => 0)
+    try {
+      writeDataFile({ settings: { experimentalNativeChat: false } })
+      const store = createStore()
+      store.updateSettings({
+        telemetry: {
+          ...store.getSettings().telemetry!,
+          optedIn: true,
+          chatUiLaunchTipCohort: 'control'
+        }
+      })
+      store.updateUI({ featureTipsSeenIds: ['orca-cli', 'chat-ui-here'] })
+      random.mockImplementationOnce(() => draw)
+      expect(ensureChatUiLaunchTipCohort(store)).toBe(cohort)
+      store.flush()
+
+      const promoted = await reopen()
+      expect(promoted.getSettings().telemetry).toMatchObject({
+        chatUiLaunchTipCohort: 'control',
+        chatUiLaunchTipRolloutCohort: cohort
+      })
+      expect(promoted.getUI().featureTipsSeenIds).toEqual(['orca-cli'])
+      promoted.updateUI({ featureTipsSeenIds: ['orca-cli', 'chat-ui-here'] })
+      promoted.flush()
+
+      const shown = await reopen()
+      expect(ensureChatUiLaunchTipCohort(shown)).toBe(cohort)
+      expect(shown.getUI().featureTipsSeenIds).toEqual(['orca-cli', 'chat-ui-here'])
+    } finally {
+      random.mockReset()
+      restoreConsentEnv(env)
+    }
+  }
+)
+
 it.each([true, false])(
   'enrolls from the current default and retains eligibility %s and historical audience on disk',
   async (eligible) => {
