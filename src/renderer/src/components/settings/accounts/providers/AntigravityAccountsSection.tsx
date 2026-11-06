@@ -21,6 +21,8 @@ import {
   useAntigravityChatSignIn
 } from '../../../provider-accounts/AntigravityChatSignInRow'
 import { openAppHttpLinkFromAnchor } from '@/lib/app-http-link-open'
+import { ChatUnavailableOnWindowsNote } from '../../../agent/launch-settings/AgentChatChoiceControls'
+import { structuredChatUnavailableOnPlatform } from '../../../../../../shared/agent-session/structured-chat-platform-support'
 
 export function AntigravityAccountsSection({
   owner,
@@ -328,6 +330,10 @@ export function AntigravityAccountsSection({
             disabled={antigravityChatSignInBlocked(chatRuntime)}
           />
         </div>
+      ) : chats && structuredChatUnavailableOnPlatform('antigravity', ownerPlatform) ? (
+        <ChatUnavailableOnWindowsNote
+          label={translate('accounts.antigravity.title', 'Antigravity')}
+        />
       ) : null}
     </section>
   )

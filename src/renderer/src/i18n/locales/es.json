@@ -409,7 +409,8 @@
       "defaultSurfaceKeptChat_other": "{{agents}} siguen como chats, como lo configuraste.",
       "defaultSurfaceSetAllChat": "Poner todos en Chat",
       "defaultSurfaceSetAllTerminal": "Poner todos en Terminal",
-      "sameAsChoice": "Igual que {{agent}} · {{choice}}"
+      "sameAsChoice": "Igual que {{agent}} · {{choice}}",
+      "chatUnavailableOnWindows": "{{value0}} Chat aún no está disponible en Windows, así que {{value0}} se abre en una terminal en este host. Los chats en un host macOS o Linux siguen funcionando."
     },
     "followSymlinkedDirectoriesKeywords": {
       "symlink": "enlace simbólico",
@@ -3801,7 +3802,8 @@
             "cliTag": "(CLI)",
             "agentsLoading": "Cargando agentes",
             "terminalListNeedsServerUpdate": "Actualiza Orca en este servidor para ver los agentes de terminal",
-            "terminalListFailed": "No se pudieron listar los agentes de terminal de este espacio de trabajo"
+            "terminalListFailed": "No se pudieron listar los agentes de terminal de este espacio de trabajo",
+            "chatNotOnWindows": "Chat aún no disponible en Windows"
           },
           "RecentTabSwitcher": {
             "329638ff6f": "Cambiar pestaña",
@@ -19893,7 +19895,8 @@
         "hostUnavailable": "El host del archivo adjunto no está disponible. Vuelve a conectarte y a intentarlo.",
         "connectionChanged": "La conexión cambió. Cierra este archivo adjunto y vuelve a abrirlo.",
         "readFailed": "No se pudo leer este archivo adjunto en su host. Vuelve a conectarte y a intentarlo. Es posible que el archivo se haya eliminado o modificado."
-      }
+      },
+      "explicitChatWindows": "El chat de este agente aún no está disponible en Windows. Ábralo en una terminal."
     },
     "tab": {
       "bar": {

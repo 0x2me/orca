@@ -844,7 +844,8 @@
       "defaultSurfaceKeptChat_other": "{{agents}} bleiben wie eingestellt Chats.",
       "defaultSurfaceSetAllChat": "Alle auf Chat setzen",
       "defaultSurfaceSetAllTerminal": "Alle auf Terminal setzen",
-      "sameAsChoice": "Wie {{agent}} · {{choice}}"
+      "sameAsChoice": "Wie {{agent}} · {{choice}}",
+      "chatUnavailableOnWindows": "{{value0}} Chat ist unter Windows noch nicht verfügbar, daher öffnet sich {{value0}} auf diesem Host in einem Terminal. Chats auf einem macOS- oder Linux-Host funktionieren weiterhin."
     },
     "followSymlinkedDirectoriesKeywords": {
       "symlink": "Symbolischer Link",
@@ -4268,7 +4269,8 @@
             "chatUnavailableAfterSelection": "Ein Chat mit {{value0}} konnte nicht gestartet werden.",
             "startChat": "Chat mit {{value0}} starten",
             "cliTag": "(CLI)",
-            "agentsLoading": "Agenten werden geladen"
+            "agentsLoading": "Agenten werden geladen",
+            "chatNotOnWindows": "Unter Windows noch kein Chat"
           },
           "RecentTabSwitcher": {
             "329638ff6f": "Tab wechseln",
@@ -20088,7 +20090,8 @@
         "hostUnavailable": "Der Host des Anhangs ist nicht verfügbar. Stelle die Verbindung erneut her und versuche es erneut.",
         "connectionChanged": "Die Verbindung hat sich geändert. Schließe diesen Anhang und öffne ihn erneut.",
         "readFailed": "Dieser Anhang konnte auf seinem Host nicht gelesen werden. Stelle die Verbindung erneut her und versuche es erneut. Die Datei wurde möglicherweise entfernt oder geändert."
-      }
+      },
+      "explicitChatWindows": "Der Chat dieses Agenten ist unter Windows noch nicht verfügbar. Öffne ihn stattdessen in einem Terminal."
     },
     "tab": {
       "bar": {

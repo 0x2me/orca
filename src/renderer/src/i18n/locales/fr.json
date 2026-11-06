@@ -629,7 +629,8 @@
       "defaultSurfaceKeptChat_other": "{{agents}} restent en chat, comme vous l’avez choisi.",
       "defaultSurfaceSetAllChat": "Tout mettre en Chat",
       "defaultSurfaceSetAllTerminal": "Tout mettre en Terminal",
-      "sameAsChoice": "Identique à {{agent}} · {{choice}}"
+      "sameAsChoice": "Identique à {{agent}} · {{choice}}",
+      "chatUnavailableOnWindows": "{{value0}} Chat n’est pas encore disponible sous Windows : {{value0}} s’ouvre donc dans un terminal sur cet hôte. Les chats sur un hôte macOS ou Linux fonctionnent toujours."
     },
     "followSymlinkedDirectoriesKeywords": {
       "symlink": "lien symbolique",
@@ -4025,7 +4026,8 @@
             "chatNotInWsl": "Chat indisponible dans WSL",
             "agentsLoading": "Chargement des agents",
             "terminalListNeedsServerUpdate": "Mettez à jour Orca sur ce serveur pour lister les agents de terminal",
-            "terminalListFailed": "Impossible de lister les agents de terminal de cet espace de travail"
+            "terminalListFailed": "Impossible de lister les agents de terminal de cet espace de travail",
+            "chatNotOnWindows": "Pas encore de chat sous Windows"
           },
           "RecentTabSwitcher": {
             "329638ff6f": "Changer d'onglet",
@@ -20114,7 +20116,8 @@
         "hostUnavailable": "L’hôte de la pièce jointe est indisponible. Reconnectez-vous et réessayez.",
         "connectionChanged": "La connexion a changé. Fermez cette pièce jointe et rouvrez-la.",
         "readFailed": "Impossible de lire cette pièce jointe sur son hôte. Reconnectez-vous et réessayez. Le fichier a peut-être été supprimé ou modifié."
-      }
+      },
+      "explicitChatWindows": "Le chat de cet agent n’est pas encore disponible sous Windows. Ouvrez-le plutôt dans un terminal."
     },
     "tab": {
       "bar": {

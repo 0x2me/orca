@@ -900,7 +900,8 @@
       "defaultSurfaceKeptChat_other": "{{agents}} остаются в виде чатов, как вы настроили.",
       "defaultSurfaceSetAllChat": "Перевести все в чат",
       "defaultSurfaceSetAllTerminal": "Перевести все в терминал",
-      "sameAsChoice": "Как у {{agent}} · {{choice}}"
+      "sameAsChoice": "Как у {{agent}} · {{choice}}",
+      "chatUnavailableOnWindows": "{{value0}} Chat пока недоступен в Windows, поэтому {{value0}} открывается в терминале на этом хосте. Чаты на хосте macOS или Linux по-прежнему работают."
     },
     "followSymlinkedDirectoriesKeywords": {
       "symlink": "символическая ссылка",
@@ -4375,7 +4376,8 @@
             "chatUnavailableAfterSelection": "Не удалось начать чат {{value0}}.",
             "startChat": "Начните чат с {{value0}}",
             "cliTag": "(CLI)",
-            "agentsLoading": "Загрузка агентов"
+            "agentsLoading": "Загрузка агентов",
+            "chatNotOnWindows": "В Windows чата пока нет"
           },
           "RecentTabSwitcher": {
             "329638ff6f": "Переключить вкладку",
@@ -20755,7 +20757,8 @@
         "hostUnavailable": "Сервер вложения недоступен. Подключитесь снова и повторите попытку.",
         "connectionChanged": "Соединение изменилось. Закройте вложение и откройте его снова.",
         "readFailed": "Не удалось прочитать вложение на его сервере. Подключитесь снова и повторите попытку. Возможно, файл был удалён или изменён."
-      }
+      },
+      "explicitChatWindows": "Чат этого агента пока недоступен в Windows. Откройте его в терминале."
     },
     "tab": {
       "bar": {
