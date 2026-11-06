@@ -1,8 +1,7 @@
 import { useGitHubPreparedImageUpdates } from './github-composer-prepared-image'
 import type { GitHubMarkdownComposerProps } from './github-markdown-composer-props'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useEditor } from '@tiptap/react'
-import type { Editor } from '@tiptap/react'
+import { useEditor, type Editor } from '@tiptap/react'
 import Placeholder from '@tiptap/extension-placeholder'
 import { ImageIcon, Paperclip } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -36,7 +35,10 @@ import {
   useRichMarkdownSpellcheckAttribute
 } from '@/components/editor/rich-markdown/instance/rich-markdown-spellcheck'
 import { openAppHttpLink } from '@/lib/app-http-link-open'
-import { gitHubComposerImageHandlers } from './github-composer-image-paste'
+import {
+  gitHubComposerImageHandlers,
+  useGitHubComposerImageDrop
+} from './github-composer-image-paste'
 
 export function GitHubMarkdownComposer({
   draft,
@@ -70,6 +72,12 @@ export function GitHubMarkdownComposer({
   const [linkBubble, setLinkBubble] = useState<LinkBubbleState | null>(null)
   const [isEditingLink, setIsEditingLink] = useState(false)
   const isTabbed = layout === 'tabbed'
+  const attachImageDrop = useGitHubComposerImageDrop(
+    rootRef,
+    editorRef,
+    draftRef,
+    !disabled && (!isTabbed || activeTab === 'write')
+  )
   const codec = useMemo(() => createRichMarkdownEditorCodec(), [])
 
   const {
@@ -361,7 +369,7 @@ export function GitHubMarkdownComposer({
   ) : null
   return (
     <div
-      ref={rootRef}
+      ref={attachImageDrop}
       className={cn(
         'github-markdown-composer relative overflow-hidden rounded-md border border-input bg-background shadow-xs',
         isTabbed && 'github-markdown-composer-tabbed',

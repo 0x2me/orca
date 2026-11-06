@@ -1,4 +1,5 @@
 import type { RefObject } from 'react'
+import { useOsFileDropOwner } from '@/hooks/use-os-file-drop-owner'
 import type { Editor, EditorOptions } from '@tiptap/react'
 import type { GitHubDraft } from './use-github-draft'
 import { assertGitHubImage } from '../../../../shared/github/image-attachment'
@@ -83,7 +84,7 @@ export function pasteGitHubImages(editor: Editor, files: File[], draft: GitHubDr
 export function gitHubComposerImageHandlers(
   editorRef: RefObject<Editor | null>,
   draftRef: RefObject<GitHubDraft | undefined>
-): Pick<NonNullable<EditorOptions['editorProps']>, 'handlePaste' | 'handleDrop'> {
+): Pick<NonNullable<EditorOptions['editorProps']>, 'handlePaste'> {
   return {
     handlePaste: (_view, event) => {
       const current = editorRef.current
@@ -92,24 +93,43 @@ export function gitHubComposerImageHandlers(
         !!draftRef.current &&
         pasteGitHubImages(current, Array.from(event.clipboardData?.files ?? []), draftRef.current)
       )
-    },
-    handleDrop: (_view, event, _slice, moved) => {
-      const current = editorRef.current
-      const owner = draftRef.current
-      const files = Array.from(event.dataTransfer?.files ?? [])
-      if (
-        moved ||
-        !current?.isEditable ||
-        !owner ||
-        !files.some((file) => file.type.startsWith('image/'))
-      ) {
-        return false
-      }
-      const position = current.view.posAtCoords({ left: event.clientX, top: event.clientY })
-      if (position) {
-        current.commands.setTextSelection(position.pos)
-      }
-      return pasteGitHubImages(current, files, owner)
     }
   }
+}
+
+export function useGitHubComposerImageDrop(
+  rootRef: RefObject<HTMLElement | null>,
+  editorRef: RefObject<Editor | null>,
+  draftRef: RefObject<GitHubDraft | undefined>,
+  enabled: boolean
+): (root: HTMLElement | null) => void {
+  return useOsFileDropOwner(rootRef, {
+    kind: 'files',
+    canAccept: (event) => {
+      const current = editorRef.current
+      return !!(
+        enabled &&
+        current?.isEditable &&
+        !current.isDestroyed &&
+        draftRef.current &&
+        event.target instanceof Node &&
+        current.view.dom.contains(event.target)
+      )
+    },
+    captureDestination: (event) => {
+      const editor = editorRef.current
+      const draft = draftRef.current
+      if (!editor || !draft) {
+        return null
+      }
+      const position = editor.view.posAtCoords({ left: event.clientX, top: event.clientY })
+      return position ? { editor, draft, position: position.pos } : null
+    },
+    onFiles: (files, { destination }) => {
+      if (!destination || !destination.editor.commands.setTextSelection(destination.position)) {
+        return
+      }
+      pasteGitHubImages(destination.editor, files, destination.draft)
+    }
+  })
 }

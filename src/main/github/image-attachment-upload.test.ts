@@ -49,6 +49,8 @@ describe('GitHub attachment upload', () => {
       'https://uploads.github.com/user-attachments/assets?name=screen.png&content_type=image%2Fpng&repository_id=123',
       '-H',
       'Content-Type: application/octet-stream',
+      '-H',
+      'Content-Length: 3',
       '--input',
       '-'
     ])

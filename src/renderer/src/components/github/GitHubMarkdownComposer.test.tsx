@@ -1,4 +1,4 @@
-import { GitHubDraft } from './use-github-draft'
+import { GitHubDraft, useGitHubDraft } from './use-github-draft'
 import { prepareGitHubImages } from './prepare-github-images'
 import type { GitHubImageParseRequest } from '../../../../shared/github/image-parser-protocol'
 import { BrowserImageParserFixture } from '../../../../shared/github/__fixtures__/image-parser-worker-fixture'
@@ -6,13 +6,14 @@ import { BrowserImageParserFixture } from '../../../../shared/github/__fixtures_
 
 import { Editor } from '@tiptap/react'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConversationTab } from '@/components/github-item-dialog/discuss-item/conversation-tab'
 import { GHCommentComposer } from '@/components/github-item-dialog/discuss-item/gh-comment-composer'
 import type { AppState } from '@/store/types'
 import type { GitHubCommentResult, PRComment } from '../../../../shared/github/comment-types'
 import { GitHubMarkdownComposer } from './GitHubMarkdownComposer'
+import { installOsFileDropCancellationGuard } from '@/lib/os-file-drop-cancellation-guard'
 
 type ComposerStoreState = { settings: Partial<AppState['settings']>; repos: AppState['repos'] }
 
@@ -129,6 +130,20 @@ function getComposerEditor(container: HTMLElement): HTMLElement {
   return editor
 }
 
+function dropImageFiles(element: HTMLElement, transfer: DataTransfer): void {
+  Object.defineProperty(transfer, 'types', { value: ['Files'] })
+  const event = new Event('drop', { bubbles: true, cancelable: true, composed: true })
+  Object.defineProperties(event, {
+    dataTransfer: { value: transfer },
+    isTrusted: { value: true },
+    clientX: { value: 10 },
+    clientY: { value: 10 }
+  })
+  act(() => {
+    element.dispatchEvent(event)
+  })
+}
+
 async function enterComment(container: HTMLElement): Promise<void> {
   await waitFor(() => expect(container.querySelector('.tiptap')).not.toBeNull())
   fireEvent.input(getComposerEditor(container), {
@@ -153,11 +168,12 @@ function renderCommentSubmission() {
 
 describe('GitHubMarkdownComposer submission', () => {
   it.each([
-    { trigger: 'button', count: 2 },
-    { trigger: 'shortcut', count: 20 }
+    { trigger: 'button', count: 2, intake: 'paste' },
+    { trigger: 'shortcut', count: 20, intake: 'paste' },
+    { trigger: 'button', count: 2, intake: 'drop' }
   ])(
-    'includes $count delayed pasted files before $trigger submission without rebuilding the editor',
-    async ({ trigger, count }) => {
+    'includes $count delayed $intake files before $trigger submission without rebuilding the editor',
+    async ({ trigger, count, intake }) => {
       const readers: FileReader[] = []
       vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (
         this: FileReader
@@ -184,7 +200,16 @@ describe('GitHubMarkdownComposer submission', () => {
           new File([String(index)], `screen-${index}.png`, { type: 'image/png' })
         )
       }
-      fireEvent.paste(element, { clipboardData })
+      if (intake === 'drop') {
+        onTestFinished(installOsFileDropCancellationGuard())
+        vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({
+          pos: editor.state.doc.content.size - 1,
+          inside: -1
+        })
+        dropImageFiles(element, clipboardData)
+      } else {
+        fireEvent.paste(element, { clipboardData })
+      }
       act(() => editor.view.dispatch(editor.state.tr.insertText('prefix ', 1)))
       if (trigger === 'button') {
         fireEvent.click(view.getByRole('button', { name: 'Send comment' }))
@@ -608,3 +633,115 @@ it('replaces an unresolved raw HTML image while preserving an unrelated valueles
     '<div>\n\n<img src><img src="https://github.com/user-attachments/assets/b">\n\n</div>'
   )
 })
+
+it('delivers a dropped image through the app file guard without losing surrounding text', async () => {
+  const original = 'Before. After.'
+  const draft = new GitHubDraft(original, vi.fn(), 'owner')
+  const view = render(
+    <GitHubMarkdownComposer value={original} draft={draft} onChange={draft.change} />
+  )
+  await waitFor(() => expect(view.container.querySelector('.tiptap')).not.toBeNull())
+  const element = getComposerEditor(view.container)
+  if (!('editor' in element) || !(element.editor instanceof Editor)) {
+    throw new Error('Missing real editor')
+  }
+  vi.spyOn(element.editor.view, 'posAtCoords').mockReturnValue({ pos: 9, inside: -1 })
+  act(() => {
+    element.editor.commands.setTextSelection({ from: 1, to: 8 })
+  })
+  const disposeGuard = installOsFileDropCancellationGuard()
+  try {
+    const transfer = new DataTransfer()
+    transfer.items.add(
+      new File([new Uint8Array([0, 128, 255])], 'screen.png', { type: 'image/png' })
+    )
+    dropImageFiles(element, transfer)
+    await waitFor(() =>
+      expect(element.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,AID/')
+    )
+    expect(draft.value).toMatch(
+      /Before\.[\s]*!\[[^\]]*\]\(data:image\/png;base64,AID\/\)[\s]*After\./
+    )
+  } finally {
+    disposeGuard()
+  }
+})
+
+it.each(['unmount', 'reset', 'editor replacement'])(
+  'keeps a held drop owned during %s without late publication or successor insertion',
+  async (change) => {
+    const readers: FileReader[] = []
+    vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (this: FileReader) {
+      readers.push(this)
+    })
+    const abort = vi.spyOn(FileReader.prototype, 'abort')
+    const publish = vi.fn(async () => {})
+    const update = vi.fn()
+    let submission: Promise<void> | undefined
+    let acceptedSignal: AbortSignal | undefined
+    function Owner({ ownerKey = 'owner', editorKey = 'editor' }) {
+      const draft = useGitHubDraft('Original text.', update, ownerKey)
+      return (
+        <>
+          <GitHubMarkdownComposer
+            key={editorKey}
+            value="Original text."
+            draft={draft}
+            onChange={draft.change}
+          />
+          <button
+            onClick={() => {
+              acceptedSignal = draft.signal
+              submission = draft.submit(publish, () => {})
+            }}
+          >
+            Submit draft
+          </button>
+        </>
+      )
+    }
+    const view = render(<Owner />)
+    await waitFor(() => expect(view.container.querySelector('.tiptap')).not.toBeNull())
+    const element = getComposerEditor(view.container)
+    if (!('editor' in element) || !(element.editor instanceof Editor)) {
+      throw new Error('Missing real editor')
+    }
+    vi.spyOn(element.editor.view, 'posAtCoords').mockReturnValue({ pos: 5, inside: -1 })
+    onTestFinished(installOsFileDropCancellationGuard())
+    const transfer = new DataTransfer()
+    transfer.items.add(new File(['image'], 'screen.png', { type: 'image/png' }))
+    dropImageFiles(element, transfer)
+    expect(readers).toHaveLength(1)
+    fireEvent.click(view.getByRole('button', { name: 'Submit draft' }))
+    expect(publish).not.toHaveBeenCalled()
+    if (change === 'unmount') {
+      view.unmount()
+    } else if (change === 'reset') {
+      view.rerender(<Owner ownerKey="replacement" />)
+    } else {
+      view.rerender(<Owner editorKey="replacement" />)
+    }
+    if (change === 'editor replacement') {
+      expect(abort).not.toHaveBeenCalled()
+      expect(acceptedSignal?.aborted).toBe(false)
+    } else {
+      expect(abort).toHaveBeenCalledOnce()
+      expect(acceptedSignal?.aborted).toBe(true)
+    }
+    await act(async () => {
+      Object.defineProperty(readers[0], 'result', { value: 'data:image/png;base64,AA==' })
+      readers[0].dispatchEvent(new ProgressEvent('load'))
+      await submission
+    })
+    expect(update).not.toHaveBeenCalled()
+    expect(publish).not.toHaveBeenCalled()
+    expect(view.container.querySelector('img')).toBeNull()
+    if (change === 'editor replacement') {
+      fireEvent.click(view.getByRole('button', { name: 'Submit draft' }))
+      await act(async () => {
+        await submission
+      })
+      expect(publish).toHaveBeenCalledExactlyOnceWith('Original text.', expect.any(AbortSignal))
+    }
+  }
+)

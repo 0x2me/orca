@@ -83,6 +83,8 @@ export async function uploadGitHubImage(args: {
         endpoint.href,
         '-H',
         'Content-Type: application/octet-stream',
+        '-H',
+        `Content-Length: ${bytes.byteLength}`,
         '--input',
         '-'
       ],
