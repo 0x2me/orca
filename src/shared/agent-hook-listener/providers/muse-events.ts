@@ -16,7 +16,8 @@ import {
   createMuseSessionLogState,
   readMuseBackgroundWork,
   readMusePendingUserInput,
-  recordMuseWorkflowLaunch
+  recordMuseWorkflowLaunch,
+  restartMuseBackgroundWork
 } from '../../muse-session-log'
 import type { HookListenerState, MusePaneState } from '../listener-state'
 import {
@@ -117,7 +118,9 @@ export function normalizeMuseEvent(
   if (eventName === 'SessionStart' || eventName === 'SessionEnd') {
     // Background children do not survive their session.
     pane.runningChildSessionIds.clear()
-    pane.log?.workflowRuns.clear()
+    if (pane.log) {
+      restartMuseBackgroundWork(pane.log)
+    }
   }
   if (
     eventName === 'PostToolUse' &&

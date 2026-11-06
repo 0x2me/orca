@@ -183,6 +183,36 @@ describe('Muse hook events', () => {
     expect(woken?.payload.mainAgent).toBeUndefined()
   })
 
+  // A muse killed mid-workflow (kill -9) leaves its workflow.run.native task at `started` forever.
+  it('does not let a workflow from an earlier Muse process hold a resumed session open', () => {
+    const taskId = '01a1afae-f365-7742-9b8b-b55de664b4d3'
+    const task = (kind: string): string =>
+      `${JSON.stringify({
+        recorded_at: 1_793_948_841_250_274,
+        payload: {
+          kind: 'task',
+          run_id: TURN_ID,
+          task_id: taskId,
+          event: { kind, task_id: taskId, task_kind: 'workflow.run.native' }
+        }
+      })}\n`
+    writeFileSync(sessionLogPath(), `${task('proposed')}${task('started')}`)
+
+    normalizeAndAccept(state, 'muse', {
+      ...main,
+      hook_event_name: 'SessionStart',
+      source: 'resume'
+    })
+    const stopped = normalizeAndAccept(state, 'muse', {
+      ...main,
+      turn_id: '01a1afaf-9d8f-7262-8cb8-965ef6f773f3',
+      hook_event_name: 'Stop',
+      stop_hook_active: false,
+      last_assistant_message: 'hi'
+    })
+    expect(stopped?.payload.state).toBe('done')
+  })
+
   it('reports a request_user_input question from the session log until it settles', () => {
     const logPath = sessionLogPath()
     const body = { ...main, hook_event_name: 'UserPromptSubmit', prompt: 'ask my favorite color' }

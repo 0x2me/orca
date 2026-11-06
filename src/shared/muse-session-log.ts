@@ -70,6 +70,8 @@ export type MuseSessionLogState = {
   workflowRuns: Map<string, boolean>
   /** The newest main-agent run the log started and has not yet ended. */
   activeRunId?: string
+  /** Muse `recorded_at` (µs) before which runs and workflows belong to an earlier process; a killed one never settles them. */
+  backgroundWorkSinceUs: number
 }
 
 export type MuseBackgroundWork = {
@@ -91,8 +93,16 @@ export function createMuseSessionLogState(sessionId: string): MuseSessionLogStat
     sessionId,
     cursor: { offset: 0, carry: '' },
     pending: new Map(),
-    workflowRuns: new Map()
+    workflowRuns: new Map(),
+    backgroundWorkSinceUs: Date.now() * 1000
   }
+}
+
+/** A new Muse process owns the session from now; work its predecessors logged no longer runs. */
+export function restartMuseBackgroundWork(log: MuseSessionLogState): void {
+  log.workflowRuns.clear()
+  log.activeRunId = undefined
+  log.backgroundWorkSinceUs = Date.now() * 1000
 }
 
 /** Muse batches some records into a `retained_frame` whose `children[].record_json` hold them as strings. */
@@ -142,8 +152,10 @@ function applyUserInputRecord(log: MuseSessionLogState, entry: JsonRecord): void
 function applyBackgroundWorkRecord(log: MuseSessionLogState, entry: JsonRecord): void {
   const payload = record(entry.payload)
   const event = record(payload?.event)
+  const current =
+    typeof entry.recorded_at === 'number' && entry.recorded_at >= log.backgroundWorkSinceUs
   if (payload?.kind === 'run' && typeof payload.run_id === 'string') {
-    if (event?.kind === 'started') {
+    if (event?.kind === 'started' && current) {
       log.activeRunId = payload.run_id
     } else if (event?.kind === 'terminal' && log.activeRunId === payload.run_id) {
       log.activeRunId = undefined
@@ -155,7 +167,7 @@ function applyBackgroundWorkRecord(log: MuseSessionLogState, entry: JsonRecord):
     return
   }
   if (event.kind === 'proposed' && event.task_kind === WORKFLOW_RUN_TASK_KIND) {
-    if (!log.workflowRuns.has(taskId)) {
+    if (current && !log.workflowRuns.has(taskId)) {
       log.workflowRuns.set(taskId, true)
     }
   } else if (log.workflowRuns.get(taskId) === true && SETTLED_TASK_KINDS.includes(event.kind)) {
