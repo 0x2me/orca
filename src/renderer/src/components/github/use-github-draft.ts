@@ -1,6 +1,6 @@
 import { GitHubImageClassificationError } from '../../../../shared/github/image-parser-protocol'
 import { translate } from '@/i18n/i18n'
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 
 export type GitHubPreparedImage = { source: string; url: string; body: string; attempt: object }
@@ -196,10 +196,10 @@ export function useGitHubDraft(
   update: (body: string) => void,
   key: string
 ): GitHubDraft {
-  const ref = useRef<GitHubDraft | null>(null)
-  ref.current ??= new GitHubDraft(value, update, key)
-  const draft = ref.current
-  draft.sync(value, update, key)
+  const [draft] = useState(() => new GitHubDraft(value, update, key))
+  useLayoutEffect(() => {
+    draft.sync(value, update, key)
+  }, [draft, value, update, key])
   useSyncExternalStore(draft.subscribeReads, draft.hasPendingReads, draft.hasPendingReads)
   useEffect(() => () => draft.invalidate(), [draft])
   return draft
