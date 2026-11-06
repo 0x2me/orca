@@ -56,7 +56,6 @@ export function useSourceControlCreatePrIntentReview({
       createPrIntentCurrentTargetRef.current
     ])
   )
-  const attachmentSignal = attachmentDraft.signal
   const createHostedReviewForCreatePrIntent = useCallback(
     async (
       token: CreatePrIntentRunToken,
@@ -65,6 +64,7 @@ export function useSourceControlCreatePrIntentReview({
       if (!activeRepo || !token.branch || !shouldAttemptCreateHostedReviewForIntent(eligibility)) {
         return false
       }
+      const attachmentSignal = attachmentDraft.signal
 
       const base = resolveCreatePrIntentReviewBase({
         currentBaseRef: token.baseRef,
@@ -285,7 +285,6 @@ export function useSourceControlCreatePrIntentReview({
     },
     [
       attachmentDraft,
-      attachmentSignal,
       activeRepo,
       createHostedReview,
       createPrInFlightRef,
