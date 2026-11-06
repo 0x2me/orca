@@ -19,13 +19,14 @@ import type { GitAdmissionTier } from '../git/command-runner/git-exec-options'
 import { requireReachableGitRoute } from '../providers/execution-host-provider-dispatch'
 import { getConnectionExecutionHostId } from '../../shared/execution-host'
 import { resolveGitHubProjectAccount } from './github-project-account'
+import { githubOperationTimeout, type GitHubOperationBudget } from './github-operation-budget'
 
 export type OwnerRepo = GitHubOwnerRepo
 
 export type { GitHubRemoteIdentity }
 export { parseGitHubOwnerRepo, parseGitHubRemoteIdentity }
 
-export type GitHubRepoContext = {
+export type GitHubRepoContext = GitHubOperationBudget & {
   repoPath: string
   connectionId?: string | null
   wslDistro?: string
@@ -34,11 +35,7 @@ export type GitHubRepoContext = {
   ghAccount?: GhAccountBinding
 }
 
-export type LocalGitExecOptions = {
-  wslDistro?: string
-  admissionTier?: GitAdmissionTier
-  ghAccount?: GhAccountBinding
-}
+export type LocalGitExecOptions = Omit<GitHubRepoContext, 'repoPath' | 'connectionId'>
 
 export type GitHubRemoteIdentityProbeOptions = {
   requireVerifiedSshProbe?: boolean
@@ -66,7 +63,14 @@ export async function withGitHubRepoExecution<T>(
       "The project's GitHub account changed. Try the action again with the current account."
     )
   }
-  return operations.run(context, operation)
+  if (context.signal) {
+    githubOperationTimeout(context)
+  }
+  const result = await operations.run(context, operation)
+  if (context.signal) {
+    githubOperationTimeout(context)
+  }
+  return result
 }
 
 export function githubRepoContext(
@@ -75,6 +79,9 @@ export function githubRepoContext(
   localGitOptions: LocalGitExecOptions = {}
 ): GitHubRepoContext {
   const context = {
+    ...(localGitOptions.signal
+      ? { signal: localGitOptions.signal, deadlineAt: localGitOptions.deadlineAt }
+      : {}),
     repoPath,
     connectionId: connectionId ?? null,
     ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {}),
@@ -95,13 +102,25 @@ export function githubRepoContext(
 }
 
 export function ghRepoExecOptions(context: GitHubRepoContext): {
+  signal?: AbortSignal
+  deadlineAt?: number
+  timeout?: number
   cwd?: string
   encoding?: BufferEncoding
   wslDistro?: string
   admissionTier?: GitAdmissionTier
   ghAccount?: GhAccountBinding
 } {
-  const account = context.ghAccount ? { ghAccount: context.ghAccount } : {}
+  const account = {
+    ...(context.ghAccount ? { ghAccount: context.ghAccount } : {}),
+    ...(context.signal
+      ? {
+          signal: context.signal,
+          deadlineAt: context.deadlineAt,
+          timeout: githubOperationTimeout(context)
+        }
+      : {})
+  }
   return context.connectionId
     ? { ...account }
     : {
@@ -182,6 +201,18 @@ export async function getOwnerRepoForRemote(
     ? `ssh:${context.connectionId}`
     : `local:${context.wslDistro ?? 'host'}`
   const cacheKey = `${runtimeKey}\0${context.repoPath}\0${remoteName}`
+  if (context.signal) {
+    githubOperationTimeout(context)
+    const signature = await readLocalGitConfigSignature(context)
+    githubOperationTimeout(context)
+    return resolveOwnerRepoForRemote(
+      context,
+      remoteName,
+      cacheKey,
+      signature,
+      probeOptions.requireVerifiedSshProbe === true
+    )
+  }
   const now = Date.now()
   pruneOwnerRepoCache(now)
   const cached = ownerRepoCache.get(cacheKey)
@@ -232,6 +263,9 @@ async function resolveOwnerRepoForRemote(
   const now = Date.now()
   try {
     const remoteUrl = await getRemoteUrlForRepo(context, remoteName)
+    if (context.signal) {
+      githubOperationTimeout(context)
+    }
     if (!remoteUrl) {
       if (requireVerifiedSshProbe) {
         requireReachableGitRoute(getConnectionExecutionHostId(context.connectionId))
@@ -246,6 +280,9 @@ async function resolveOwnerRepoForRemote(
       return null
     }
     const classification = await classifyGitHubOwnerRepoFromRemoteUrl(remoteUrl, context)
+    if (context.signal) {
+      githubOperationTimeout(context)
+    }
     if (classification.kind === 'github') {
       // Signed entries still expire and revalidate Git config on reuse.
       ownerRepoCache.set(cacheKey, {

@@ -1,3 +1,9 @@
+import { useGitHubDraft } from '@/components/github/use-github-draft'
+import {
+  prepareGitHubImages,
+  captureGitHubImageContext
+} from '@/components/github/prepare-github-images'
+import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
 import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
 import React, { useState } from 'react'
 import { Send } from 'lucide-react'
@@ -44,6 +50,7 @@ export function CommentsList({
             owner={owner}
             repo={repo}
             comment={c}
+            sourceTarget={sourceTarget}
             onDelete={async () => {
               const res = await gitHubSlugApiForTarget(sourceTarget).deleteIssueCommentBySlug({
                 owner,
@@ -58,8 +65,21 @@ export function CommentsList({
               }
               onChange(comments.filter((x) => x.id !== c.id))
             }}
-            onEdit={async (next) => {
-              const res = await gitHubSlugApiForTarget(sourceTarget).updateIssueCommentBySlug({
+            onEdit={async (next, preparation) => {
+              const imageContext = await captureGitHubImageContext({
+                runtime: sourceTarget,
+                target: { kind: 'slug', owner, repo, host }
+              })
+              next = await prepareGitHubImages({
+                body: next,
+                ...preparation,
+                context: imageContext
+              })
+              preparation.signal.throwIfAborted()
+              const res = await gitHubSlugApiForTarget(
+                imageContext.runtime,
+                imageContext.rpcOptions
+              ).updateIssueCommentBySlug({
                 owner,
                 repo,
                 ...(host ? { host } : {}),
@@ -69,9 +89,11 @@ export function CommentsList({
               })
               if (!res.ok) {
                 toast.error(projectViewErrorMessage(res.error))
-                return
+                return false
               }
               onChange(comments.map((x) => (x.id === c.id ? { ...x, body: next } : x)))
+
+              return true
             }}
           />
         ))
@@ -82,17 +104,25 @@ export function CommentsList({
 
 function CommentRow({
   comment,
+  sourceTarget,
   onDelete,
   onEdit
 }: {
   owner: string
   repo: string
   comment: PRComment
+  sourceTarget: RuntimeClientTarget
   onDelete: () => void | Promise<void>
-  onEdit: (next: string) => void | Promise<void>
+  onEdit: (next: string, preparation: GitHubDraftPreparation) => Promise<boolean>
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(comment.body)
+  const [saving, setSaving] = useState(false)
+  const controller = useGitHubDraft(
+    draft,
+    setDraft,
+    JSON.stringify([comment.id, editing, sourceTarget])
+  )
   return (
     <div className="rounded border border-border/50 bg-muted/20 p-3">
       <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
@@ -118,16 +148,21 @@ function CommentRow({
           <textarea
             autoFocus
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => controller.change(e.target.value)}
+            disabled={saving}
             className="min-h-[80px] w-full rounded border border-border/50 bg-background p-2 text-sm"
           />
           <div className="flex gap-2">
             <Button
               size="sm"
-              onClick={() => {
-                setEditing(false)
-                void onEdit(draft)
-              }}
+              disabled={saving}
+              onClick={() =>
+                void controller.submit(async (body, signal) => {
+                  if (await onEdit(body, { signal, update: controller.change })) {
+                    setEditing(false)
+                  }
+                }, setSaving)
+              }
             >
               {translate('auto.components.github.project.slug.dialog.Comments.c3e829b4d9', 'Save')}
             </Button>
@@ -163,12 +198,18 @@ export function NewCommentForm({
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const controller = useGitHubDraft(
+    draft,
+    setDraft,
+    JSON.stringify([owner, repo, host, number, sourceTarget])
+  )
   const canSubmitComment = hasBoundedCommentBodyText(draft)
   return (
     <div className="flex flex-col gap-2">
       <textarea
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => controller.change(e.target.value)}
+        disabled={submitting}
         placeholder={translate(
           'auto.components.github.project.slug.dialog.Comments.1c95937c8b',
           'Write a comment…'
@@ -179,40 +220,55 @@ export function NewCommentForm({
         <Button
           size="sm"
           disabled={!canSubmitComment || submitting}
-          onClick={async () => {
-            const bodyState = getCommentBodySubmitState(draft)
-            if (bodyState.status === 'empty') {
-              return
-            }
-            if (bodyState.status === 'too-large-leading-whitespace') {
-              toast.error(
-                translate(
-                  'auto.components.github.project.slug.dialog.Comments.commentTooLarge',
-                  'Comment is too large to submit safely.'
-                )
-              )
-              return
-            }
-            setSubmitting(true)
-            try {
-              const res = await gitHubSlugApiForTarget(sourceTarget).addIssueCommentBySlug({
-                owner,
-                repo,
-                ...(host ? { host } : {}),
-                number,
-                body: bodyState.body,
-                wakeWslDistro: true
-              })
-              if (!res.ok) {
-                toast.error(projectViewErrorMessage(res.error))
+          onClick={() =>
+            void controller.submit(async (currentBody, signal) => {
+              const bodyState = getCommentBodySubmitState(currentBody)
+              if (bodyState.status === 'empty') {
                 return
               }
-              onAdded(res.comment)
-              setDraft('')
-            } finally {
-              setSubmitting(false)
-            }
-          }}
+              if (bodyState.status === 'too-large-leading-whitespace') {
+                toast.error(
+                  translate(
+                    'auto.components.github.project.slug.dialog.Comments.commentTooLarge',
+                    'Comment is too large to submit safely.'
+                  )
+                )
+                return
+              }
+              try {
+                const imageContext = await captureGitHubImageContext({
+                  runtime: sourceTarget,
+                  target: { kind: 'slug', owner, repo, host }
+                })
+                const body = await prepareGitHubImages({
+                  body: bodyState.body,
+                  signal,
+                  update: controller.change,
+                  context: imageContext
+                })
+                signal.throwIfAborted()
+                const res = await gitHubSlugApiForTarget(
+                  imageContext.runtime,
+                  imageContext.rpcOptions
+                ).addIssueCommentBySlug({
+                  owner,
+                  repo,
+                  ...(host ? { host } : {}),
+                  number,
+                  body,
+                  wakeWslDistro: true
+                })
+                if (!res.ok) {
+                  toast.error(projectViewErrorMessage(res.error))
+                  return
+                }
+                onAdded(res.comment)
+                setDraft('')
+              } finally {
+                setSubmitting(false)
+              }
+            }, setSubmitting)
+          }
         >
           <Send className="mr-1 size-3.5" />{' '}
           {translate('auto.components.github.project.slug.dialog.Comments.fd5cccd138', 'Comment')}

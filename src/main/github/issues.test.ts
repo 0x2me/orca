@@ -89,7 +89,7 @@ describe('issue source operations', () => {
     }))
   })
 
-  it('recovers issue 7704 oversized inline-image creation', async () => {
+  it('recovers an oversized text body when gh splits details across stdout and stderr', async () => {
     const imagePrefix = 'data:image/png;base64,'
     const body = imagePrefix + 'x'.repeat(133596 - imagePrefix.length)
     expect(body).toContain('data:image')
@@ -97,7 +97,13 @@ describe('issue source operations', () => {
 
     getIssueOwnerRepoMock.mockResolvedValueOnce({ owner: 'stablyai', repo: 'orca' })
     ghExecFileAsyncMock
-      .mockRejectedValueOnce(new Error('HTTP 422: body is too long (maximum is 65536 characters)'))
+      .mockRejectedValueOnce(
+        Object.assign(new Error('gh: Validation Failed (HTTP 422)'), {
+          stderr: 'gh: Validation Failed (HTTP 422)',
+          stdout:
+            '{"message":"Validation Failed","errors":["body is too long (maximum is 65536 characters)"]}'
+        })
+      )
       .mockResolvedValueOnce({
         stdout: JSON.stringify({
           number: 926,
@@ -149,6 +155,16 @@ describe('issue source operations', () => {
       ['api', '-X', 'PATCH', 'repos/stablyai/orca/issues/926', '--input', '-'],
       { cwd: '/repo-root', host: 'github.com', stdin: JSON.stringify({ body }) }
     )
+  })
+
+  it('refuses an unresolved screenshot before creating or changing an issue', async () => {
+    await expect(
+      createIssue('/repo-root', 'Screenshot', '![image](data:image/png;base64,AA==)')
+    ).resolves.toMatchObject({ ok: false, error: expect.stringContaining('not been uploaded') })
+    await expect(
+      updateIssue('/repo-root', 924, { body: '<img src="blob:https://orca/id">', state: 'closed' })
+    ).resolves.toMatchObject({ ok: false, error: expect.stringContaining('not been uploaded') })
+    expect(ghExecFileAsyncMock).not.toHaveBeenCalled()
   })
 
   it('does not retry unrelated create failures', async () => {

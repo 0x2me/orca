@@ -60,7 +60,7 @@ export function useSourceControlCreatePrIntentFlows(
   } = foundation
   const { generateCommitMessageForCreatePrIntent, handleCommit, isGenerating, runRemoteAction } =
     commitFlows
-  const { handlePullRequestCreated, prBase, prBody, prGenerating } = reviewFlows
+  const { handlePullRequestCreated, prBase, prBody, prGenerating, setPrBody } = reviewFlows
 
   const createPrIntentReview = useSourceControlCreatePrIntentReview({
     activeRepo,
@@ -74,6 +74,7 @@ export function useSourceControlCreatePrIntentFlows(
     hostedReviewCreateCopy,
     prBase,
     prBody,
+    setPrBody,
     resolvedPrCreationDefaults,
     setCreatePrInFlightByWorktree,
     setCreatePrIntentNoticeForWorktree,

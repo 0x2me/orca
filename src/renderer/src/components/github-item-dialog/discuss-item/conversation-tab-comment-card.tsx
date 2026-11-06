@@ -1,3 +1,4 @@
+import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
 import React from 'react'
 import { ExternalLink, MessageSquarePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -32,7 +33,11 @@ export type ConversationCommentCardContext = {
   markdownGitHubRepo: GitHubOwnerRepo | null
   resolvedReplyingTo: number | null
   setReplyingTo: React.Dispatch<React.SetStateAction<number | null>>
-  handleReply: (comment: PRComment, replyBody: string) => Promise<boolean>
+  handleReply: (
+    comment: PRComment,
+    replyBody: string,
+    preparation: GitHubDraftPreparation
+  ) => Promise<boolean>
 }
 
 export function renderCommentCard(
@@ -153,6 +158,14 @@ export function renderCommentCard(
         <CommentReactions reactions={comment.reactions} />
         {ctx.resolvedReplyingTo === comment.id && (
           <CommentReplyForm
+            contextKey={JSON.stringify([
+              ctx.repoId,
+              ctx.repoPath,
+              ctx.sourceContext,
+              ctx.prNumber,
+              ctx.prRepo,
+              comment.id
+            ])}
             className="mt-3"
             placeholder={
               comment.path
@@ -165,7 +178,7 @@ export function renderCommentCard(
                   })
             }
             onCancel={() => ctx.setReplyingTo(null)}
-            onSubmit={(replyBody) => ctx.handleReply(comment, replyBody)}
+            onSubmit={(replyBody, preparation) => ctx.handleReply(comment, replyBody, preparation)}
           />
         )}
       </div>
@@ -187,7 +200,11 @@ export type ConversationTabCommentCardProps = {
   markdownGitHubRepo: GitHubOwnerRepo | null
   resolvedReplyingTo: number | null
   onToggleReply: (commentId: number) => void
-  onReply: (comment: PRComment, replyBody: string) => Promise<boolean>
+  onReply: (
+    comment: PRComment,
+    replyBody: string,
+    preparation: GitHubDraftPreparation
+  ) => Promise<boolean>
   onCancelReply: () => void
 }
 

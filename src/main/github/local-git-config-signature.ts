@@ -1,3 +1,4 @@
+import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
 import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -22,10 +23,13 @@ export async function readLocalGitConfigSignature(
     return undefined
   }
   // Deadline only the caller: keep the in-flight read shared so a hung mount cannot accumulate more reads.
-  return withConfigSignatureDeadline(
-    runCoalescedProbe(localGitConfigSignatureInFlight, context.repoPath, () =>
-      readUncachedLocalGitConfigSignature(context.repoPath)
-    )
+  return waitForPromiseWithSignal(
+    withConfigSignatureDeadline(
+      runCoalescedProbe(localGitConfigSignatureInFlight, context.repoPath, () =>
+        readUncachedLocalGitConfigSignature(context.repoPath)
+      )
+    ),
+    context.signal
   )
 }
 

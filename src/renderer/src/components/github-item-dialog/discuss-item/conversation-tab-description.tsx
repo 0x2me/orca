@@ -1,3 +1,4 @@
+import type { GitHubDraft } from '@/components/github/use-github-draft'
 import React from 'react'
 import { Check, LoaderCircle, Pencil, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,6 +11,7 @@ import type { GitHubWorkItem } from '../../../../../shared/github/work-item-type
 import { translate } from '@/i18n/i18n'
 
 export function ConversationTabDescription({
+  draft,
   item,
   authorLabel,
   canEditBody,
@@ -25,6 +27,7 @@ export function ConversationTabDescription({
   setBodyEditing,
   onSaveBody
 }: {
+  draft: GitHubDraft
   item: GitHubWorkItem
   authorLabel: string
   canEditBody: boolean
@@ -115,6 +118,7 @@ export function ConversationTabDescription({
           </div>
         ) : bodyEditing ? (
           <GitHubMarkdownComposer
+            draft={draft}
             value={resolvedBodyDraft}
             onChange={setBodyDraft}
             placeholder={translate('auto.components.GitHubItemDialog.52b20b56f7', 'Description')}

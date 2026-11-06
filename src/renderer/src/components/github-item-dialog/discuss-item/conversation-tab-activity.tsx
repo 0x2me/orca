@@ -1,3 +1,4 @@
+import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
 import React from 'react'
 import { FolderKanban, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -49,7 +50,11 @@ export function ConversationTabActivity({
     markdownGitHubRepo: GitHubOwnerRepo | null
     resolvedReplyingTo: number | null
     onToggleReply: (commentId: number) => void
-    onReply: (comment: PRComment, replyBody: string) => Promise<boolean>
+    onReply: (
+      comment: PRComment,
+      replyBody: string,
+      preparation: GitHubDraftPreparation
+    ) => Promise<boolean>
     onCancelReply: () => void
   }
   onCommentFilterChange: (filter: PRCommentAudienceFilter) => void

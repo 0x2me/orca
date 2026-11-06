@@ -1,3 +1,4 @@
+import { useGitHubDraft } from '@/components/github/use-github-draft'
 import React, { useCallback, useState } from 'react'
 import { LoaderCircle, Send } from 'lucide-react'
 import { toast } from 'sonner'
@@ -39,78 +40,88 @@ export function GHCommentComposer({
   const [body, setBody] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const mountedRef = useMountedRef()
-
-  const handleSubmit = useCallback(async () => {
-    const bodyState = getCommentBodySubmitState(body)
-    if (bodyState.status === 'empty') {
-      return
-    }
-    if (bodyState.status === 'too-large-leading-whitespace') {
-      toast.error(
-        translate(
-          'auto.components.GitHubItemDialog.commentTooLarge',
-          'Comment is too large to submit safely.'
-        )
-      )
-      return
-    }
-    setSubmitting(true)
-    try {
-      const result = await addIssueCommentForRepo({
-        repoPath,
-        repoId: repoId ?? undefined,
-        sourceContext,
-        number: issueNumber,
-        body: bodyState.body,
-        type: itemType,
-        prRepo
-      })
-      if (result.ok) {
-        onCommentAdded(result.comment)
-      }
-      if (!mountedRef.current) {
-        return
-      }
-      if (result.ok) {
-        setBody('')
-        // Why: use GitHub's returned comment so the optimistic row shows the real login/avatar immediately.
-      } else {
-        toast.error(
-          codeHostErrorText(result) ??
-            translate('auto.components.GitHubItemDialog.082515176a', 'Failed to add comment')
-        )
-      }
-    } catch (err) {
-      if (mountedRef.current) {
-        toast.error(
-          err instanceof Error
-            ? err.message
-            : translate('auto.components.GitHubItemDialog.082515176a', 'Failed to add comment')
-        )
-      }
-    } finally {
-      if (mountedRef.current) {
-        setSubmitting(false)
-      }
-    }
-  }, [
+  const draft = useGitHubDraft(
     body,
-    mountedRef,
-    repoPath,
-    repoId,
-    sourceContext,
-    issueNumber,
-    itemType,
-    prRepo,
-    onCommentAdded
-  ])
+    setBody,
+    JSON.stringify([repoPath, repoId, sourceContext, issueNumber, itemType, prRepo])
+  )
+
+  const handleSubmit = useCallback(
+    async () =>
+      draft.submit(async (currentBody, signal) => {
+        const bodyState = getCommentBodySubmitState(currentBody)
+        if (bodyState.status === 'empty') {
+          return
+        }
+        if (bodyState.status === 'too-large-leading-whitespace') {
+          toast.error(
+            translate(
+              'auto.components.GitHubItemDialog.commentTooLarge',
+              'Comment is too large to submit safely.'
+            )
+          )
+          return
+        }
+        try {
+          const result = await addIssueCommentForRepo({
+            repoPath,
+            repoId: repoId ?? undefined,
+            sourceContext,
+            number: issueNumber,
+            body: bodyState.body,
+            preparation: { signal, update: draft.change },
+            type: itemType,
+            prRepo
+          })
+          if (result.ok) {
+            onCommentAdded(result.comment)
+          }
+          if (!mountedRef.current) {
+            return
+          }
+          if (result.ok) {
+            setBody('')
+            // Why: use GitHub's returned comment so the optimistic row shows the real login/avatar immediately.
+          } else {
+            toast.error(
+              codeHostErrorText(result) ??
+                translate('auto.components.GitHubItemDialog.082515176a', 'Failed to add comment')
+            )
+          }
+        } catch (err) {
+          if (mountedRef.current) {
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : translate('auto.components.GitHubItemDialog.082515176a', 'Failed to add comment')
+            )
+          }
+        } finally {
+          if (mountedRef.current) {
+            setSubmitting(false)
+          }
+        }
+      }, setSubmitting),
+    [
+      draft,
+      mountedRef,
+      repoPath,
+      repoId,
+      sourceContext,
+      issueNumber,
+      itemType,
+      prRepo,
+      onCommentAdded
+    ]
+  )
   const canSubmitComment = hasBoundedCommentBodyText(body)
 
   return (
     <div className={cn('relative', className)}>
       <GitHubMarkdownComposer
+        draft={draft}
         value={body}
-        onChange={setBody}
+        onChange={draft.change}
         placeholder={translate('auto.components.GitHubItemDialog.c5c117270e', 'Add a comment…')}
         disabled={submitting}
         minHeightClassName="min-h-28 pb-14 pr-14"

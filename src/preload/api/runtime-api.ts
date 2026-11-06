@@ -41,9 +41,10 @@ export type RuntimeApi = {
     getStatus: () => Promise<RuntimeStatus>
     call: (args: { method: string; params?: unknown }) => Promise<RuntimeRpcResponse<unknown>>
     subscribe: (
-      args: { method: string; params?: unknown },
+      args: { method: string; params?: unknown; subscriptionId?: string; timeoutMs?: number },
       callback: (response: RuntimeRpcResponse<unknown>) => void
     ) => Promise<RuntimeEnvironmentSubscriptionHandle>
+    cancelSubscription: (args: { subscriptionId: string }) => Promise<void>
     getTerminalFitOverrides: () => Promise<
       { ptyId: string; mode: 'mobile-fit' | 'remote-desktop-fit'; cols: number; rows: number }[]
     >

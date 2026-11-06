@@ -1,3 +1,4 @@
+import { gitHubBodyImageError } from '../../../shared/github/markdown-image-destinations'
 import { assertPositiveInt, projectGhExecOptions, runRest, validateSlugArgs } from './internals'
 import type { PRComment } from '../../../shared/github/comment-types'
 import type {
@@ -33,6 +34,13 @@ function mapIssueComment(data: RawIssueCommentResponse, fallbackBody: string): P
 export async function addIssueCommentBySlug(
   args: AddIssueCommentBySlugArgs
 ): Promise<GitHubProjectCommentMutationResult> {
+  const imageError = gitHubBodyImageError(args.body)
+  if (imageError) {
+    return {
+      ok: false,
+      error: { type: 'validation_error', message: imageError }
+    }
+  }
   const slug = validateSlugArgs(args.owner, args.repo)
   if (!slug.ok) {
     return slug
@@ -71,6 +79,13 @@ export async function addIssueCommentBySlug(
 export async function updateIssueCommentBySlug(
   args: UpdateIssueCommentBySlugArgs
 ): Promise<GitHubProjectMutationResult> {
+  const imageError = gitHubBodyImageError(args.body)
+  if (imageError) {
+    return {
+      ok: false,
+      error: { type: 'validation_error', message: imageError }
+    }
+  }
   const slug = validateSlugArgs(args.owner, args.repo)
   if (!slug.ok) {
     return slug

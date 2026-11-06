@@ -1,3 +1,5 @@
+import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
+import type { GitHubOperationBudget } from './github-operation-budget'
 // Require gh >=2.40 multi-account support per execution runtime before offering bindings.
 import { ghExecFileAsync } from '../git/runner'
 import { parseWslUncPath } from '../../shared/wsl-paths'
@@ -7,7 +9,7 @@ import {
   type GhCaptureLifetimeHooks
 } from '../git/command-runner/gh-capture-lifetime'
 
-export type GhCapabilityTarget = {
+export type GhCapabilityTarget = GitHubOperationBudget & {
   cwd?: string
   wslDistro?: string
 }
@@ -35,6 +37,7 @@ export function normalizeGhCapabilityTarget(target: GhCapabilityTarget = {}): Gh
   const wslDistro =
     target.wslDistro ?? (target.cwd ? parseWslUncPath(target.cwd)?.distro : undefined)
   return {
+    ...(target.signal ? { signal: target.signal, deadlineAt: target.deadlineAt } : {}),
     ...(target.cwd ? { cwd: target.cwd } : {}),
     ...(wslDistro ? { wslDistro } : {})
   }
@@ -107,7 +110,7 @@ export async function getGhMultiAccountCapability(
   const inFlight = probesByExecutionHost.get(key)
   if (inFlight) {
     hooks?.onTerminationPending(inFlight.lifetime.terminated)
-    const result = await inFlight.result
+    const result = await waitForPromiseWithSignal(inFlight.result, target.signal)
     if (hooks) {
       await inFlight.lifetime.waitPending()
     }
@@ -138,16 +141,18 @@ export async function getGhMultiAccountCapability(
   const holder = { result: probe, lifetime }
   probesByExecutionHost.set(key, holder)
   try {
-    const result = await probe
+    const result = await waitForPromiseWithSignal(probe, target.signal)
     if (hooks) {
       await lifetime.waitPending()
     }
     return result
   } finally {
     lifetime.seal()
-    if (probesByExecutionHost.get(key) === holder) {
-      probesByExecutionHost.delete(key)
-    }
+    void probe.finally(() => {
+      if (probesByExecutionHost.get(key) === holder) {
+        probesByExecutionHost.delete(key)
+      }
+    })
   }
 }
 

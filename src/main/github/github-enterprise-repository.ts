@@ -1,3 +1,4 @@
+import { githubOperationTimeout } from './github-operation-budget'
 import { githubReadExecutionScope } from './github-read-execution-scope'
 import { ghExecFileAsync } from '../git/runner'
 import type { GitHubOwnerRepo } from '../../shared/github/pull-request-types'
@@ -141,15 +142,21 @@ async function resolveAuthenticatedGitHubHost(
     return cached.authenticatedHost
   }
   const inFlight = hostAuthInFlight.get(cacheKey)
-  if (inFlight) {
+  if (inFlight && !localGitOptions.signal) {
     return inFlight
   }
   const probe = (async () => {
     let authenticatedHost: string | null
     try {
       const { stdout, stderr } = await ghExecFileAsync(['auth', 'status'], execOptions)
+      if (localGitOptions.signal) {
+        githubOperationTimeout(localGitOptions)
+      }
       authenticatedHost = authenticatedHostFromInventory(host, `${stdout}\n${stderr}`)
     } catch (error) {
+      if (localGitOptions.signal) {
+        githubOperationTimeout(localGitOptions)
+      }
       const output = ghCommandOutput(error)
       if (!output) {
         // Leave spawn failures uncached so installation or credential changes can recover.
@@ -165,6 +172,9 @@ async function resolveAuthenticatedGitHubHost(
     pruneHostAuthCache(Date.now())
     return authenticatedHost
   })()
+  if (localGitOptions.signal) {
+    return probe
+  }
   hostAuthInFlight.set(cacheKey, probe)
   try {
     return await probe

@@ -1,3 +1,4 @@
+import { gitHubBodyImageError } from '../../../../shared/github/markdown-image-destinations'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
 import { hostedReviewSshConnectionId } from '../../../source-control/hosted-review-execution-host'
 import type {
@@ -39,6 +40,11 @@ export async function createGitHubPullRequest(
       error: 'Creating reviews for this provider is not supported yet.',
       reason: 'provider_not_supported'
     }
+  }
+
+  const imageError = gitHubBodyImageError(input.body)
+  if (imageError) {
+    return { ok: false, code: 'validation', error: imageError }
   }
 
   // `gh` runs on this client whatever the host; only the git reads under it are routed.
@@ -93,6 +99,10 @@ export async function createGitHubPullRequest(
           input.useTemplate && !input.body?.trim()
             ? await readPullRequestTemplate(repoPath, connectionId)
             : (input.body ?? '')
+        const templateImageError = gitHubBodyImageError(body)
+        if (templateImageError) {
+          return { ok: false, code: 'validation', error: templateImageError }
+        }
         await writeFile(bodyPath, body, 'utf8')
         const createArgs = [
           'pr',

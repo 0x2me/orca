@@ -1,3 +1,5 @@
+import { prepareHostedReviewImages } from './prepare-hosted-review-images'
+import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
 import type { StateCreator } from 'zustand'
 import type {
   CreateHostedReviewResult,
@@ -51,11 +53,13 @@ export type HostedReviewSlice = {
   ) => Promise<HostedReviewCreationEligibility>
   createHostedReview: (
     repoPath: string,
-    input: CreateHostedReviewStoreInput
+    input: CreateHostedReviewStoreInput,
+    preparation?: GitHubDraftPreparation
   ) => Promise<CreateHostedReviewResult>
   createStackedHostedReview: (
     repoPath: string,
-    input: CreateStackedHostedReviewStoreInput
+    input: CreateStackedHostedReviewStoreInput,
+    preparation?: GitHubDraftPreparation
   ) => Promise<CreateStackedHostedReviewResult>
   fetchHostedReviewForBranch: (
     repoPath: string,
@@ -97,21 +101,24 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
     )
   },
 
-  createHostedReview: async (repoPath, input) => {
+  createHostedReview: async (repoPath, input, preparation) => {
     const repo = findHostedReviewRepoByPath(get().repos, repoPath, input.repoId)
     const target = hostedReviewRepoOwnerTarget(repo)
+    const prepared = await prepareHostedReviewImages(repo, target, repoPath, input, preparation)
+    const imageContext = prepared.context
+    input = prepared.input
     const { repoId: inputRepoId, ...hostedReviewInput } = input
-    if (target.kind === 'environment') {
+    if (imageContext.runtime.kind === 'environment') {
       const { worktreePath, ...runtimeInput } = hostedReviewInput
       return callRuntimeRpc<CreateHostedReviewResult>(
-        target,
+        imageContext.runtime,
         'hostedReview.create',
         {
           repo: repo?.id ?? repoPath,
           ...(worktreePath ? { worktree: `path:${worktreePath}` } : {}),
           ...runtimeInput
         },
-        { timeoutMs: 60_000 }
+        { ...imageContext.rpcOptions, timeoutMs: 60_000 }
       )
     }
     return window.api.hostedReview.create({
@@ -122,21 +129,24 @@ export const createHostedReviewSlice: StateCreator<AppState, [], [], HostedRevie
     })
   },
 
-  createStackedHostedReview: async (repoPath, input) => {
+  createStackedHostedReview: async (repoPath, input, preparation) => {
     const repo = findHostedReviewRepoByPath(get().repos, repoPath, input.repoId)
     const target = hostedReviewRepoOwnerTarget(repo)
+    const prepared = await prepareHostedReviewImages(repo, target, repoPath, input, preparation)
+    const imageContext = prepared.context
+    input = prepared.input
     const { repoId: inputRepoId, ...hostedReviewInput } = input
-    if (target.kind === 'environment') {
+    if (imageContext.runtime.kind === 'environment') {
       const { worktreePath, ...runtimeInput } = hostedReviewInput
       return callRuntimeRpc<CreateStackedHostedReviewResult>(
-        target,
+        imageContext.runtime,
         'hostedReview.createStacked',
         {
           repo: repo?.id ?? repoPath,
           ...(worktreePath ? { worktree: `path:${worktreePath}` } : {}),
           ...runtimeInput
         },
-        { timeoutMs: 90_000 }
+        { ...imageContext.rpcOptions, timeoutMs: 90_000 }
       )
     }
     return window.api.hostedReview.createStacked({

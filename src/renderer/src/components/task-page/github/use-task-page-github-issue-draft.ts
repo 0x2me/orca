@@ -1,3 +1,4 @@
+import { useGitHubDraft } from '@/components/github/use-github-draft'
 import type { TaskPageGitHubCacheReconciliationModel } from './use-task-page-github-cache-reconciliation'
 import { useState, useMemo, useEffect } from 'react'
 import type { GitHubAssignableUser } from '../../../../../shared/github/pull-request-types'
@@ -45,6 +46,19 @@ export function useTaskPageGitHubIssueDraft(model: TaskPageGitHubCacheReconcilia
     }
     return repos.some((repo) => repo.id === newIssueTargetRepo.id) ? target : null
   }, [newIssueSourceContext, newIssueTargetRepo, repos, settings])
+  const newIssueDraftController = useGitHubDraft(
+    newIssueBody,
+    (body) => {
+      setNewIssueBody(body)
+      setNewIssueDraft({ body })
+    },
+    JSON.stringify([
+      newIssueOpen,
+      newIssueTargetRepo?.id,
+      newIssueRuntimeTarget,
+      newIssueSourceContext
+    ])
+  )
   const newIssueRepoLabels = useRepoLabels(
     newIssueOpen ? (newIssueTargetRepo?.path ?? null) : null,
     newIssueOpen ? (newIssueTargetRepo?.id ?? null) : null,
@@ -103,13 +117,15 @@ export function useTaskPageGitHubIssueDraft(model: TaskPageGitHubCacheReconcilia
     setNewIssueDraft,
     clearNewIssueDraft
   ])
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: every added field is assigned synchronously below before the widened model is returned.
   const nextModel = model as typeof model & {
     newIssueOpen: typeof newIssueOpen
     setNewIssueOpen: typeof setNewIssueOpen
     newIssueTitle: typeof newIssueTitle
     setNewIssueTitle: typeof setNewIssueTitle
     newIssueBody: typeof newIssueBody
-    setNewIssueBody: typeof setNewIssueBody
+    newIssueDraftController: typeof newIssueDraftController
+    setNewIssueBody: typeof newIssueDraftController.change
     newIssueLabels: typeof newIssueLabels
     setNewIssueLabels: typeof setNewIssueLabels
     newIssueAssignees: typeof newIssueAssignees
@@ -131,7 +147,8 @@ export function useTaskPageGitHubIssueDraft(model: TaskPageGitHubCacheReconcilia
   nextModel.newIssueTitle = newIssueTitle
   nextModel.setNewIssueTitle = setNewIssueTitle
   nextModel.newIssueBody = newIssueBody
-  nextModel.setNewIssueBody = setNewIssueBody
+  nextModel.newIssueDraftController = newIssueDraftController
+  nextModel.setNewIssueBody = newIssueDraftController.change
   nextModel.newIssueLabels = newIssueLabels
   nextModel.setNewIssueLabels = setNewIssueLabels
   nextModel.newIssueAssignees = newIssueAssignees

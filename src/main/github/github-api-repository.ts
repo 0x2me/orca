@@ -47,15 +47,12 @@ export async function getIssueGitHubApiRepository(
   localGitOptions: LocalGitExecOptions = {}
 ): Promise<GitHubApiRepository | null> {
   return withGitHubRepoExecution(repoPath, connectionId, localGitOptions, async () => {
-    const originPromise = getGitHubApiRepositoryForRemote(
-      repoPath,
-      'origin',
-      connectionId,
-      localGitOptions
-    ).then(
-      (value) => ({ status: 'fulfilled' as const, value }),
-      (reason: unknown) => ({ status: 'rejected' as const, reason })
-    )
+    const readOrigin = () =>
+      getGitHubApiRepositoryForRemote(repoPath, 'origin', connectionId, localGitOptions).then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (reason: unknown) => ({ status: 'rejected' as const, reason })
+      )
+    const originPromise = localGitOptions.signal ? null : readOrigin()
     const upstream = (await shouldProbeGitRemote(
       repoPath,
       'upstream',
@@ -67,7 +64,7 @@ export async function getIssueGitHubApiRepository(
     if (upstream) {
       return upstream
     }
-    const origin = await originPromise
+    const origin = await (originPromise ?? readOrigin())
     if (origin.status === 'rejected') {
       throw origin.reason
     }

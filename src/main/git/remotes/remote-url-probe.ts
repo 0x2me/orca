@@ -1,3 +1,7 @@
+import {
+  githubOperationTimeout,
+  type GitHubOperationBudget
+} from '../../github/github-operation-budget'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { gitExecFileAsync } from '../command-runner/git-exec-file'
 import { isStableMissingGitRemoteError } from './stable-missing-git-remote-error'
@@ -8,7 +12,7 @@ import { getConnectionExecutionHostId } from '../../../shared/execution-host'
 // Bound config probes so stalled mounts or WSL cannot hold every forge lookup indefinitely.
 export const REMOTE_URL_PROBE_TIMEOUT_MS = 30_000
 
-export type RemoteUrlProbeContext = {
+export type RemoteUrlProbeContext = GitHubOperationBudget & {
   repoPath: string
   connectionId?: string | null
   wslDistro?: string
@@ -40,7 +44,7 @@ export async function readRemoteUrl(
     return null
   }
   const scope = sharedRemoteUrlReads.getStore()
-  if (!scope?.open) {
+  if (context.signal || !scope?.open) {
     return readUncachedRemoteUrl(context, remoteName)
   }
   const key = [
@@ -63,7 +67,9 @@ async function readUncachedRemoteUrl(
 ): Promise<string> {
   const { stdout } = await gitExecFileAsync(['remote', 'get-url', remoteName], {
     cwd: context.repoPath,
-    timeout: REMOTE_URL_PROBE_TIMEOUT_MS,
+    timeout: githubOperationTimeout(context, REMOTE_URL_PROBE_TIMEOUT_MS),
+    signal: context.signal,
+    ...(context.signal ? { terminationBarrier: true } : {}),
     ...(context.wslDistro ? { wslDistro: context.wslDistro } : {}),
     ...(context.admissionTier ? { admissionTier: context.admissionTier } : {})
   })

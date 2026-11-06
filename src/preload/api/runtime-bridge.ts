@@ -19,10 +19,10 @@ export const runtimeApi = {
   call: (args: { method: string; params?: unknown }): Promise<RuntimeRpcResponse<unknown>> =>
     ipcRenderer.invoke('runtime:call', args),
   subscribe: async (
-    args: { method: string; params?: unknown },
+    args: { method: string; params?: unknown; subscriptionId?: string; timeoutMs?: number },
     callback: (response: RuntimeRpcResponse<unknown>) => void
   ): Promise<RuntimeEnvironmentSubscriptionHandle> => {
-    const subscriptionId = `desktop-${crypto.randomUUID()}`
+    const subscriptionId = args.subscriptionId ?? `desktop-${crypto.randomUUID()}`
     const channel = `runtime:subscription:${subscriptionId}`
     const listener = (_event: Electron.IpcRendererEvent, response: RuntimeRpcResponse<unknown>) =>
       callback(response)
@@ -42,6 +42,9 @@ export const runtimeApi = {
         throw new Error('Local runtime subscriptions do not accept binary input')
       }
     }
+  },
+  cancelSubscription: async (args: { subscriptionId: string }): Promise<void> => {
+    ipcRenderer.send('runtime:unsubscribe', args)
   },
   getTerminalFitOverrides: (): Promise<
     { ptyId: string; mode: 'mobile-fit' | 'remote-desktop-fit'; cols: number; rows: number }[]

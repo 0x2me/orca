@@ -1,10 +1,14 @@
+import {
+  githubOperationTimeout,
+  type GitHubOperationBudget
+} from '../../github/github-operation-budget'
 import { readLocalGitConfigSignature } from '../../github/local-git-config-signature'
 import { runCoalescedProbe, type CoalescedProbes } from './coalesced-probe'
 import type { GitAdmissionTier } from '../../../shared/rpc-contract/git-admission-tier-params'
 import { REMOTE_URL_PROBE_TIMEOUT_MS } from './remote-url-probe'
 import { gitExecFileAsync } from '../command-runner/git-exec-file'
 
-export type RemoteNameListingGitOptions = {
+export type RemoteNameListingGitOptions = GitHubOperationBudget & {
   wslDistro?: string
   admissionTier?: GitAdmissionTier
 }
@@ -77,6 +81,9 @@ export async function listCachedRemoteNames(
   if (connectionId) {
     return null
   }
+  if (localGitOptions.signal) {
+    return listUncachedRemoteNames(repoPath, localGitOptions)
+  }
   const cacheKey = remoteNameListingCacheKey(repoPath, localGitOptions)
   const now = Date.now()
   pruneRemoteNameListingCache(now)
@@ -130,7 +137,9 @@ async function listUncachedRemoteNames(
   try {
     const { stdout } = await gitExecFileAsync(['remote'], {
       cwd: repoPath,
-      timeout: REMOTE_URL_PROBE_TIMEOUT_MS,
+      timeout: githubOperationTimeout(localGitOptions, REMOTE_URL_PROBE_TIMEOUT_MS),
+      signal: localGitOptions.signal,
+      ...(localGitOptions.signal ? { terminationBarrier: true } : {}),
       ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {}),
       ...(localGitOptions.admissionTier ? { admissionTier: localGitOptions.admissionTier } : {})
     })

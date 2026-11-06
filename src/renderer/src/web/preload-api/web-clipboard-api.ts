@@ -1,3 +1,4 @@
+import { completeClipboardImageUpload } from '@/lib/clipboard-image-chunks'
 import { holdBrowserAttachmentFiles } from '@/lib/browser-attachment-files'
 import { decodeBase64Bytes } from '@/lib/base64-bytes'
 import {
@@ -167,39 +168,17 @@ export async function saveClipboardImageAsTempFileInRuntime(
   }
 
   const { uploadId } = startResponse.result
-  try {
-    for (
-      let offset = 0;
-      offset < contentBase64.length;
-      offset += CLIPBOARD_IMAGE_UPLOAD_CHUNK_BASE64_CHARS
-    ) {
-      await callRuntimeResult(
-        'clipboard.appendImageUploadChunk',
-        {
-          uploadId,
-          offset,
-          contentBase64: contentBase64.slice(
-            offset,
-            offset + CLIPBOARD_IMAGE_UPLOAD_CHUNK_BASE64_CHARS
-          )
-        },
+  return completeClipboardImageUpload(
+    contentBase64,
+    uploadId,
+    (method, params) => callRuntimeResult(method, params, CLIPBOARD_IMAGE_SAVE_TIMEOUT_MS),
+    () =>
+      callRuntimeResult<string>(
+        'clipboard.commitImageUpload',
+        { uploadId },
         CLIPBOARD_IMAGE_SAVE_TIMEOUT_MS
       )
-    }
-    return await callRuntimeResult<string>(
-      'clipboard.commitImageUpload',
-      { uploadId },
-      CLIPBOARD_IMAGE_SAVE_TIMEOUT_MS
-    )
-  } catch (error) {
-    // Why: after chunked paste holds server-side state, release the bounded slot on failure rather than wait for TTL cleanup.
-    await callRuntimeResult(
-      'clipboard.abortImageUpload',
-      { uploadId },
-      CLIPBOARD_IMAGE_SAVE_TIMEOUT_MS
-    ).catch(() => {})
-    throw error
-  }
+  )
 }
 
 export async function clipboardHasImage(): Promise<boolean | null> {

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { Editor } from '@tiptap/react'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -22,6 +23,8 @@ vi.mock('@/components/editor/rich-markdown/tables/RichMarkdownTableControls', ()
 vi.mock('@/components/github/github-markdown-composer-preview-pane', () => ({
   GitHubMarkdownComposerPreviewPane: () => null
 }))
+const attachmentRpc = vi.hoisted(() => vi.fn())
+vi.mock('@/runtime/github-attachment-rpc', () => ({ callGitHubAttachmentRpc: attachmentRpc }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
 const addIssueComment = vi.fn<typeof window.api.gh.addIssueComment>()
@@ -36,11 +39,30 @@ const comment: PRComment = {
 
 beforeEach(() => {
   addIssueComment.mockReset()
+  let staged = ''
+  attachmentRpc.mockImplementation(async (_target, method, params) => {
+    if (method === 'status.get') {
+      return { capabilities: ['github.image-attachments.v1'] }
+    }
+    if (method === 'clipboard.startImageUpload') {
+      return { uploadId: 'image' }
+    }
+    if (method === 'clipboard.appendImageUploadChunk') {
+      staged = params.contentBase64
+    }
+    if (method === 'github.uploadAttachment') {
+      return {
+        url: `https://github.com/user-attachments/assets/${staged === 'AA==' ? 'a' : 'b'}`
+      }
+    }
+    return {}
+  })
   vi.stubGlobal('api', { gh: { addIssueComment } })
 })
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 function getComposerEditor(container: HTMLElement): HTMLElement {
@@ -74,6 +96,56 @@ function renderCommentSubmission() {
 }
 
 describe('GitHubMarkdownComposer submission', () => {
+  it.each(['button', 'shortcut'])(
+    'includes delayed pasted files in the actual owner before %s submission',
+    async (trigger) => {
+      const readers: FileReader[] = []
+      vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (
+        this: FileReader
+      ) {
+        readers.push(this)
+      })
+      const request = Promise.withResolvers<GitHubCommentResult>()
+      addIssueComment.mockReturnValue(request.promise)
+      const view = renderCommentSubmission()
+      await enterComment(view.container)
+      const element = getComposerEditor(view.container)
+      if (!('editor' in element) || !(element.editor instanceof Editor)) {
+        throw new Error('Missing real editor')
+      }
+      const editor = element.editor
+      act(() => editor.commands.setTextSelection(editor.state.doc.content.size - 1))
+      const clipboardData = new DataTransfer()
+      clipboardData.items.add(new File(['a'], 'first.png', { type: 'image/png' }))
+      clipboardData.items.add(new File(['b'], 'second.png', { type: 'image/png' }))
+      fireEvent.paste(element, { clipboardData })
+      act(() => editor.view.dispatch(editor.state.tr.insertText('prefix ', 1)))
+      if (trigger === 'button') {
+        fireEvent.click(view.getByRole('button', { name: 'Send comment' }))
+      } else {
+        fireEvent.keyDown(element, { key: 'Enter', ctrlKey: true })
+      }
+      expect(addIssueComment).not.toHaveBeenCalled()
+      expect(element.getAttribute('contenteditable')).toBe('true')
+      await act(async () => {
+        Object.defineProperty(readers[1], 'result', { value: 'data:image/png;base64,AQ==' })
+        readers[1].dispatchEvent(new ProgressEvent('load'))
+      })
+      expect(addIssueComment).not.toHaveBeenCalled()
+      await act(async () => {
+        Object.defineProperty(readers[0], 'result', { value: 'data:image/png;base64,AA==' })
+        readers[0].dispatchEvent(new ProgressEvent('load'))
+      })
+      await waitFor(() => expect(addIssueComment).toHaveBeenCalledOnce())
+      const posted = addIssueComment.mock.calls[0][0].body
+      expect(posted).toBe(
+        'prefix Submitted comment![](https://github.com/user-attachments/assets/a)![](https://github.com/user-attachments/assets/b)'
+      )
+      expect(posted).not.toContain('data:')
+      await act(async () => request.resolve({ ok: true, comment }))
+    }
+  )
+
   it('clears the real submission owner and editor after a successful request', async () => {
     const request = Promise.withResolvers<GitHubCommentResult>()
     addIssueComment.mockReturnValue(request.promise)

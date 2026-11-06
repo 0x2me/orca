@@ -7,13 +7,22 @@ import {
   requireActiveEnvironment
 } from './web-runtime-session'
 import { noopUnsubscribe } from './web-storage'
+import { createRuntimeEnvironmentsApi } from './web-runtime-environments-api'
 
 export function createWebRuntimeApi(): NonNullable<Partial<PreloadApi>['runtime']> {
+  const environments = createRuntimeEnvironmentsApi()
   return {
     syncWindowGraph: async (_graph: RuntimeSyncWindowGraph) => getRemoteRuntimeStatus(),
     getStatus: () => getRemoteRuntimeStatus(),
     call: ({ method, params }) => callRuntimeEnvelope(method, params),
-    subscribe: async ({ method, params }, callback) => {
+    cancelSubscription: environments.cancelSubscription,
+    subscribe: async ({ method, params, subscriptionId, timeoutMs }, callback) => {
+      if (subscriptionId) {
+        return environments.subscribe(
+          { selector: requireActiveEnvironment().id, method, params, subscriptionId, timeoutMs },
+          { onResponse: callback }
+        )
+      }
       const environment = requireActiveEnvironment()
       const subscription = await getClientForEnvironment(environment).subscribe(method, params, {
         onResponse: callback

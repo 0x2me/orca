@@ -1,3 +1,5 @@
+import type { GitHubDraftPreparation } from '@/components/github/github-work-item-comment-mutations'
+import { useGitHubDraft } from '@/components/github/use-github-draft'
 import React, { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -148,54 +150,67 @@ export function ConversationTab({
       ? Boolean(projectOrigin || bodySlug)
       : Boolean(projectOrigin || canUseRepoMutationContext)
   const bodyChanged = resolvedBodyDraft !== body
-
-  const handleSaveBody = useCallback(async (): Promise<void> => {
-    if (bodySaving || !bodyChanged) {
-      setBodyEditing(false)
-      return
-    }
-    setBodySaving(true)
-    try {
-      await runWorkItemBodyUpdate({
-        item,
-        repoPath,
-        sourceContext,
-        projectOrigin,
-        body: resolvedBodyDraft,
-        parsedSlug: bodySlug
-      })
-      onBodyUpdated(resolvedBodyDraft)
-      setBodyEditing(false)
-      useAppStore.getState().recordFeatureInteraction('github-tasks')
-      toast.success(
-        translate('auto.components.GitHubItemDialog.5221548274', 'Description updated.')
-      )
-    } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : translate(
-              'auto.components.GitHubItemDialog.58c73cb0d8',
-              'Failed to update description.'
-            )
-      )
-    } finally {
-      setBodySaving(false)
-    }
-  }, [
-    bodyChanged,
+  const bodyController = useGitHubDraft(
     resolvedBodyDraft,
-    bodySaving,
-    bodySlug,
-    item,
-    onBodyUpdated,
-    projectOrigin,
-    repoPath,
-    sourceContext
-  ])
+    setBodyDraft,
+    JSON.stringify([item.id, item.repoId, sourceContext, projectOrigin, bodyEditing])
+  )
+
+  const handleSaveBody = useCallback(
+    async (): Promise<void> =>
+      bodyController.submit(async (currentBody, signal) => {
+        if (bodySaving || !bodyChanged) {
+          setBodyEditing(false)
+          return
+        }
+        try {
+          await runWorkItemBodyUpdate({
+            item,
+            repoPath,
+            sourceContext,
+            projectOrigin,
+            body: currentBody,
+            preparation: { signal, update: bodyController.change },
+            parsedSlug: bodySlug
+          })
+          onBodyUpdated(bodyController.value)
+          setBodyEditing(false)
+          useAppStore.getState().recordFeatureInteraction('github-tasks')
+          toast.success(
+            translate('auto.components.GitHubItemDialog.5221548274', 'Description updated.')
+          )
+        } catch (err) {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : translate(
+                  'auto.components.GitHubItemDialog.58c73cb0d8',
+                  'Failed to update description.'
+                )
+          )
+        } finally {
+          setBodySaving(false)
+        }
+      }, setBodySaving),
+    [
+      bodyController,
+      bodyChanged,
+      bodySaving,
+      bodySlug,
+      item,
+      onBodyUpdated,
+      projectOrigin,
+      repoPath,
+      sourceContext
+    ]
+  )
 
   const handleReply = useCallback(
-    async (comment: PRComment, replyBody: string): Promise<boolean> => {
+    async (
+      comment: PRComment,
+      replyBody: string,
+      preparation: GitHubDraftPreparation
+    ): Promise<boolean> => {
       if (!canUseRepoMutationContext) {
         toast.error(
           translate(
@@ -216,6 +231,7 @@ export function ConversationTab({
             prRepo,
             commentId: comment.id,
             body: replyBody,
+            preparation,
             threadId: comment.threadId,
             path: comment.path,
             line: comment.line
@@ -227,6 +243,13 @@ export function ConversationTab({
             number: item.number,
             // Why: a GitHub App login carries a [bot] suffix that never resolves as a mention.
             body: buildPRCommentConversationReplyBody(comment.author, replyBody),
+            preparation: {
+              ...preparation,
+              update: (body) =>
+                preparation.update(
+                  body.slice(buildPRCommentConversationReplyBody(comment.author, '').length)
+                )
+            },
             type: item.type,
             prRepo
           })
@@ -297,7 +320,8 @@ export function ConversationTab({
           body={body}
           resolvedBodyDraft={resolvedBodyDraft}
           markdownGitHubRepo={markdownGitHubRepo}
-          setBodyDraft={setBodyDraft}
+          draft={bodyController}
+          setBodyDraft={bodyController.change}
           setBodyEditing={setBodyEditing}
           onSaveBody={() => {
             void handleSaveBody()

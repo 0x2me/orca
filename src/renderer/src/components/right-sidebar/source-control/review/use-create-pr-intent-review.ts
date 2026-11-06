@@ -1,3 +1,5 @@
+import type { CreatePrIntentReviewInput } from './create-pr-intent-review-input'
+import { useGitHubDraft } from '@/components/github/use-github-draft'
 import { getRepoExecutionHostId } from '../../../../../../shared/execution-host'
 import {
   getWorkspaceJiraIssueKey,
@@ -24,14 +26,6 @@ import {
   type CreatePrIntentRunToken
 } from './create-pr-intent-flow'
 import { hasConfiguredSourceControlTextGenerationDefaults } from '../ai/text-generation-defaults'
-import type { SourceControlAi } from '../ai/use-ai'
-import type { SourceControlStoreActions } from '../listing/use-store-actions'
-import type { SourceControlWorktreeContext } from '../listing/use-worktree-context'
-import type { SourceControlWorktreeOperationState } from '../panel/use-worktree-operation-state'
-import type { SourceControlCreatePrIntentTarget } from './use-create-pr-intent-target'
-import type { SourceControlCreateReviewComposer } from './use-create-review-composer'
-import type { SourceControlHostedReviewCreated } from './use-hosted-review-created'
-import type { SourceControlHostedReviewState } from './use-hosted-review-state'
 import { openAppHttpLink } from '@/lib/app-http-link-open'
 
 /** Resolve unattended review fields without a composer; reveal only while the run owns the foreground worktree. */
@@ -47,27 +41,18 @@ export function useSourceControlCreatePrIntentReview({
   hostedReviewCreateCopy,
   prBase,
   prBody,
+  setPrBody,
   resolvedPrCreationDefaults,
   setCreatePrInFlightByWorktree,
   setCreatePrIntentNoticeForWorktree,
   settings
-}: {
-  activeRepo: SourceControlWorktreeContext['activeRepo']
-  createHostedReview: SourceControlStoreActions['createHostedReview']
-  createPrInFlightRef: SourceControlWorktreeOperationState['createPrInFlightRef']
-  createPrIntentActiveTargetConflicts: SourceControlWorktreeOperationState['createPrIntentActiveTargetConflicts']
-  createPrIntentCurrentTargetRef: SourceControlWorktreeOperationState['createPrIntentCurrentTargetRef']
-  createPrIntentRunStillOwnsWorktree: SourceControlWorktreeOperationState['createPrIntentRunStillOwnsWorktree']
-  getCreatePrIntentOperationTarget: SourceControlCreatePrIntentTarget['getCreatePrIntentOperationTarget']
-  handlePullRequestCreated: SourceControlHostedReviewCreated['handlePullRequestCreated']
-  hostedReviewCreateCopy: SourceControlHostedReviewState['hostedReviewCreateCopy']
-  prBase: SourceControlCreateReviewComposer['prBase']
-  prBody: SourceControlCreateReviewComposer['prBody']
-  resolvedPrCreationDefaults: SourceControlAi['resolvedPrCreationDefaults']
-  setCreatePrInFlightByWorktree: SourceControlWorktreeOperationState['setCreatePrInFlightByWorktree']
-  setCreatePrIntentNoticeForWorktree: SourceControlWorktreeOperationState['setCreatePrIntentNoticeForWorktree']
-  settings: SourceControlWorktreeContext['settings']
-}) {
+}: CreatePrIntentReviewInput) {
+  const attachmentDraft = useGitHubDraft(
+    prBody,
+    (body) => setPrBody?.(body),
+    JSON.stringify([activeRepo?.id, activeRepo?.ghAccount, createPrIntentCurrentTargetRef.current])
+  )
+  const attachmentSignal = attachmentDraft.signal
   const createHostedReviewForCreatePrIntent = useCallback(
     async (
       token: CreatePrIntentRunToken,
@@ -202,17 +187,33 @@ export function useSourceControlCreatePrIntentReview({
       createPrInFlightRef.current[token.worktreeId] = true
       setCreatePrInFlightByWorktree((prev) => ({ ...prev, [token.worktreeId]: true }))
       try {
-        const result = await createHostedReview(activeRepo.path, {
-          repoId: activeRepo.id,
-          provider: eligibility.provider,
-          base: fields.base,
-          head: normalizeHostedReviewHeadRef(token.branch),
-          title,
-          body: fields.body,
-          draft: fields.draft,
-          worktreePath: token.worktreePath,
-          useTemplate: resolvedPrCreationDefaults.useTemplate
-        })
+        const result = await createHostedReview(
+          activeRepo.path,
+          {
+            repoId: activeRepo.id,
+            provider: eligibility.provider,
+            base: fields.base,
+            head: normalizeHostedReviewHeadRef(token.branch),
+            title,
+            body: fields.body,
+            draft: fields.draft,
+            worktreePath: token.worktreePath,
+            useTemplate: resolvedPrCreationDefaults.useTemplate
+          },
+          {
+            signal: attachmentSignal,
+            update: (body) => {
+              if (
+                !createPrIntentRunStillOwnsWorktree(token) ||
+                createPrIntentActiveTargetConflicts(token)
+              ) {
+                throw new Error('The review target changed. Try again.')
+              }
+              fields = { ...fields, body }
+              attachmentDraft.change(body)
+            }
+          }
+        )
 
         if (result.ok) {
           const openChecks = createPrIntentIsForeground()
@@ -282,6 +283,8 @@ export function useSourceControlCreatePrIntentReview({
       }
     },
     [
+      attachmentDraft,
+      attachmentSignal,
       activeRepo,
       createHostedReview,
       createPrInFlightRef,

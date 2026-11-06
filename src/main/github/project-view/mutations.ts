@@ -1,3 +1,4 @@
+import { gitHubBodyImageError } from '../../../shared/github/markdown-image-destinations'
 import {
   acquire,
   assertPositiveInt,
@@ -18,6 +19,13 @@ import type { UpdateIssueBySlugArgs } from '../../../shared/github/project-reque
 export async function updateIssueBySlug(
   args: UpdateIssueBySlugArgs
 ): Promise<GitHubProjectMutationResult> {
+  const imageError = gitHubBodyImageError(args.updates?.body)
+  if (imageError) {
+    return {
+      ok: false,
+      error: { type: 'validation_error', message: imageError }
+    }
+  }
   const validation = validateSlugArgs(args.owner, args.repo)
   if (!validation.ok) {
     return validation

@@ -38,7 +38,9 @@ import {
 
 // cwd is optional; wslDistro routes global calls when Windows has no host gh binary.
 // Retry only idempotent calls: a failed response can follow a completed write.
-export type GhExecOptions = Omit<GitExecOptions, 'cwd'> & {
+export type GhExecOptions = Omit<GitExecOptions, 'cwd' | 'stdin'> & {
+  stdin?: string | Uint8Array
+  deadlineAt?: number
   cwd?: string
   wslDistro?: string
   idempotent?: boolean
@@ -165,9 +167,7 @@ export async function ghExecFileWithScopeAsync(
       lifetimeHooks?.onTerminationPending(lifetime.terminated)
     }
     try {
-      if (lifetime) {
-        assertGhCallActive(options.signal)
-      }
+      assertGhCallActive(options.signal)
       const boundEnvReady = ensureBoundEnv(lifetime?.hooks)
       if (boundEnvReady) {
         await boundEnvReady
@@ -177,6 +177,14 @@ export async function ghExecFileWithScopeAsync(
       if (lifetime) {
         await lifetime.waitPending(options.signal)
       }
+      assertGhCallActive(options.signal)
+      const remainingTimeout =
+        options.deadlineAt === undefined
+          ? timeoutMs
+          : Math.min(timeoutMs, options.deadlineAt - Date.now())
+      if (remainingTimeout <= 0) {
+        throw new Error('GitHub operation timed out.')
+      }
       // gh may be a shim chain; terminate the whole tree so descendants cannot outlive the deadline.
       const { stdout, stderr } = await execFileCaptureToTermination(
         resolved.binary,
@@ -185,7 +193,7 @@ export async function ghExecFileWithScopeAsync(
           cwd: resolved.cwd,
           encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
           maxBuffer: options.maxBuffer,
-          timeout: timeoutMs,
+          timeout: remainingTimeout,
           env: nonInteractiveGhEnv(boundEnv ?? options.env),
           signal: options.signal,
           stdin: options.stdin,

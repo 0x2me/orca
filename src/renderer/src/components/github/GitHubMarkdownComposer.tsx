@@ -1,3 +1,4 @@
+import type { GitHubMarkdownComposerProps } from './github-markdown-composer-props'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useEditor } from '@tiptap/react'
 import type { Editor } from '@tiptap/react'
@@ -27,7 +28,6 @@ import {
 } from '@/components/github/github-markdown-composer-tabbar'
 import { hasBoundedGitHubMarkdownImageUrlText } from '@/components/github/github-markdown-image-url'
 import { useImageInput } from '@/components/github/use-image-input'
-import type { GitHubOwnerRepo } from '../../../../shared/github/pull-request-types'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store'
 import {
@@ -35,21 +35,10 @@ import {
   useRichMarkdownSpellcheckAttribute
 } from '@/components/editor/rich-markdown/instance/rich-markdown-spellcheck'
 import { openAppHttpLink } from '@/lib/app-http-link-open'
-
-type GitHubMarkdownComposerProps = {
-  value: string
-  onChange: (value: string) => void
-  placeholder: string
-  minHeightClassName?: string
-  className?: string
-  disabled?: boolean
-  autoFocus?: boolean
-  onSubmitShortcut?: () => void
-  layout?: 'stacked' | 'tabbed'
-  previewGithubRepo?: GitHubOwnerRepo | null
-}
+import { gitHubComposerImageHandlers } from './github-composer-image-paste'
 
 export function GitHubMarkdownComposer({
+  draft,
   value,
   onChange,
   placeholder,
@@ -68,6 +57,8 @@ export function GitHubMarkdownComposer({
   const onChangeRef = useRef(onChange)
   const onSubmitShortcutRef = useRef(onSubmitShortcut)
   const disabledRef = useRef(disabled)
+  const draftRef = useRef(draft)
+  draftRef.current = draft
   const isEditingLinkRef = useRef(false)
   const richMarkdownSpellcheckEnabled = useAppStore(
     (s) => s.settings?.richMarkdownSpellcheckEnabled ?? true
@@ -126,6 +117,7 @@ export function GitHubMarkdownComposer({
     content: encodeRawMarkdownHtmlForRichEditor(value, codec),
     contentType: 'markdown',
     editorProps: {
+      ...gitHubComposerImageHandlers(editorRef, draftRef),
       attributes: {
         class: cn('rich-markdown-editor github-markdown-composer-editor', minHeightClassName),
         spellcheck: getRichMarkdownSpellcheckAttribute(richMarkdownSpellcheckEnabled)

@@ -1,3 +1,7 @@
+import {
+  prepareGitHubImages,
+  captureGitHubImageContext
+} from '@/components/github/prepare-github-images'
 import type { TaskPageWorkspaceActionsModel } from '../use-task-page-workspace-actions'
 import { useCallback } from 'react'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
@@ -16,6 +20,7 @@ type TaskPageGitHubIssueCreationInput = Pick<
   | 'newIssueTitle'
   | 'setNewIssueTitle'
   | 'newIssueBody'
+  | 'newIssueDraftController'
   | 'setNewIssueBody'
   | 'newIssueLabels'
   | 'setNewIssueLabels'
@@ -40,7 +45,7 @@ export function useTaskPageGitHubIssueCreation<Model extends TaskPageGitHubIssue
     setNewIssueOpen,
     newIssueTitle,
     setNewIssueTitle,
-    newIssueBody,
+    newIssueDraftController,
     setNewIssueBody,
     newIssueLabels,
     setNewIssueLabels,
@@ -54,182 +59,204 @@ export function useTaskPageGitHubIssueCreation<Model extends TaskPageGitHubIssue
     newIssueSourceContext,
     newIssueRuntimeTarget
   } = model
-  const handleCreateNewIssue = useCallback(async (): Promise<void> => {
-    if (!newIssueTargetRepo) {
-      return
-    }
-    const title = newIssueTitle.trim()
-    if (!title || newIssueSubmitting) {
-      return
-    }
-    setNewIssueSubmitting(true)
-    try {
-      const sourceReady = await useAppStore
-        .getState()
-        .githubSourceCollections.awaitSave(newIssueTargetRepo)
-      // Why: the awaited save's own toast already reports its failure; any other unsafe target is this press's.
-      if (sourceReady === 'save-failed') {
-        return
-      }
-      if (!sourceReady()) {
-        toast.error(translate('auto.components.TaskPage.7437e340b4', 'Failed to create issue.'))
-        return
-      }
-      const result = newIssueRuntimeTarget
-        ? await callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.createIssue>>>(
-            newIssueRuntimeTarget,
-            'github.createIssue',
-            {
-              repo:
-                newIssueSourceContext?.provider === 'github'
-                  ? (newIssueSourceContext.repoId ?? newIssueTargetRepo.id)
-                  : newIssueTargetRepo.id,
-              title,
-              body: newIssueBody,
-              labels: newIssueLabels,
-              assignees: newIssueAssignees.map((assignee) => assignee.login)
-            },
-            // Why: oversized-body recovery can need two 30s writes after GitHub rejects the initial create.
-            {
-              timeoutMs: 65_000
-            }
-          )
-        : await window.api.gh.createIssue({
-            repoPath: newIssueTargetRepo.path,
-            repoId: newIssueTargetRepo.id,
-            sourceContext: newIssueSourceContext,
-            title,
-            body: newIssueBody,
-            labels: newIssueLabels,
-            assignees: newIssueAssignees.map((assignee) => assignee.login)
-          })
-      if (!result.ok) {
-        toast.error(
-          codeHostErrorText(result) ||
-            translate('auto.components.TaskPage.7437e340b4', 'Failed to create issue.')
-        )
-        return
-      }
-      const createdIssueToast = translate(
-        'auto.components.TaskPage.3f9604efc7',
-        'Opened issue #{{value0}}',
-        {
-          value0: result.number
+  const handleCreateNewIssue = useCallback(
+    async (): Promise<void> =>
+      newIssueDraftController.submit(async (draftBody, signal) => {
+        if (!newIssueTargetRepo) {
+          return
         }
-      )
-      const createdIssueToastOptions = {
-        action: result.url
-          ? {
-              label: translate('auto.components.TaskPage.9c57663908', 'View'),
-              onClick: () => openAppHttpLink(result.url)
-            }
-          : undefined
-      }
-      if (result.bodySaveWarning) {
-        toast.warning(createdIssueToast, {
-          ...createdIssueToastOptions,
-          description: result.bodySaveWarning
-        })
-      } else {
-        toast.success(createdIssueToast, createdIssueToastOptions)
-      }
-      setNewIssueOpen(false)
-      if (result.bodySaveWarning) {
-        // Why: keep the unsaved body for recovery but clear the title so reopening can't one-click repeat the create.
-        setNewIssueTitle('')
-        setNewIssueDraft({
-          title: ''
-        })
-      } else {
-        setNewIssueTitle('')
-        setNewIssueBody('')
-        setNewIssueLabels([])
-        setNewIssueAssignees([])
-        clearNewIssueDraft()
-      }
-      setTaskRefreshNonce((current) => current + 1)
-
-      // Open immediately from an optimistic stub, then refine it with the full work-item read.
-      const stub: GitHubWorkItem = {
-        id: `issue:${String(result.number)}`,
-        repoId: newIssueTargetRepo.id,
-        type: 'issue',
-        number: result.number,
-        title,
-        state: 'open',
-        url: result.url,
-        labels: newIssueLabels,
-        assignees: newIssueAssignees,
-        updatedAt: new Date().toISOString(),
-        author: null
-      }
-      openGitHubDetailPage(stub)
-      setDialogWorkItem(stub)
-      const stubRepoId = newIssueTargetRepo.id
-      const fullIssuePromise = newIssueRuntimeTarget
-        ? callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.workItem>>>(
-            newIssueRuntimeTarget,
-            'github.workItem',
+        const title = newIssueTitle.trim()
+        if (!title || newIssueSubmitting) {
+          return
+        }
+        try {
+          const sourceReady = await useAppStore
+            .getState()
+            .githubSourceCollections.awaitSave(newIssueTargetRepo)
+          // Why: the awaited save's own toast already reports its failure; any other unsafe target is this press's.
+          if (sourceReady === 'save-failed') {
+            return
+          }
+          if (!sourceReady()) {
+            toast.error(translate('auto.components.TaskPage.7437e340b4', 'Failed to create issue.'))
+            return
+          }
+          signal.throwIfAborted()
+          const uploadRuntime = newIssueRuntimeTarget ?? { kind: 'local' as const }
+          const uploadSelector =
+            newIssueSourceContext?.provider === 'github'
+              ? (newIssueSourceContext.repoId ?? newIssueTargetRepo.id)
+              : newIssueTargetRepo.id
+          const imageContext = await captureGitHubImageContext({
+            runtime: uploadRuntime,
+            target: { kind: 'repo', repo: uploadSelector, source: 'issue' }
+          })
+          const preparedBody = await prepareGitHubImages({
+            body: draftBody,
+            signal,
+            context: imageContext,
+            update: newIssueDraftController.change
+          })
+          signal.throwIfAborted()
+          const result =
+            imageContext.runtime.kind === 'environment'
+              ? await callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.createIssue>>>(
+                  imageContext.runtime,
+                  'github.createIssue',
+                  {
+                    repo:
+                      newIssueSourceContext?.provider === 'github'
+                        ? (newIssueSourceContext.repoId ?? newIssueTargetRepo.id)
+                        : newIssueTargetRepo.id,
+                    title,
+                    body: preparedBody,
+                    labels: newIssueLabels,
+                    assignees: newIssueAssignees.map((assignee) => assignee.login)
+                  },
+                  // Why: oversized-body recovery can need two 30s writes after GitHub rejects the initial create.
+                  {
+                    ...imageContext.rpcOptions,
+                    timeoutMs: 65_000
+                  }
+                )
+              : await window.api.gh.createIssue({
+                  repoPath: newIssueTargetRepo.path,
+                  repoId: newIssueTargetRepo.id,
+                  sourceContext: newIssueSourceContext,
+                  title,
+                  body: preparedBody,
+                  labels: newIssueLabels,
+                  assignees: newIssueAssignees.map((assignee) => assignee.login)
+                })
+          if (!result.ok) {
+            toast.error(
+              codeHostErrorText(result) ||
+                translate('auto.components.TaskPage.7437e340b4', 'Failed to create issue.')
+            )
+            return
+          }
+          const createdIssueToast = translate(
+            'auto.components.TaskPage.3f9604efc7',
+            'Opened issue #{{value0}}',
             {
-              repo:
-                newIssueSourceContext?.provider === 'github'
-                  ? (newIssueSourceContext.repoId ?? newIssueTargetRepo.id)
-                  : newIssueTargetRepo.id,
-              number: result.number,
-              type: 'issue'
-            },
-            {
-              timeoutMs: 30_000
+              value0: result.number
             }
           )
-        : window.api.gh.workItem({
-            repoPath: newIssueTargetRepo.path,
-            repoId: newIssueTargetRepo.id,
-            sourceContext: newIssueSourceContext,
-            number: result.number,
-            type: 'issue'
-          })
-      void fullIssuePromise
-        .then((full) => {
-          const state = useAppStore.getState()
-          if (
-            full &&
-            state.taskPageData.openGitHubWorkItem === stub &&
-            state.githubTaskDrawerWorkItem === stub
-          ) {
-            // Why: cast through unknown — spreading the discriminated union loses the discriminant, so { ...full, repoId } won't typecheck.
-            const withRepoId = {
-              ...full,
-              repoId: stubRepoId
-            } as unknown as GitHubWorkItem
-            setDialogWorkItem(withRepoId)
+          const createdIssueToastOptions = {
+            action: result.url
+              ? {
+                  label: translate('auto.components.TaskPage.9c57663908', 'View'),
+                  onClick: () => openAppHttpLink(result.url)
+                }
+              : undefined
           }
-        })
-        .catch(() => {})
-    } finally {
-      setNewIssueSubmitting(false)
-    }
-  }, [
-    newIssueBody,
-    newIssueAssignees,
-    newIssueLabels,
-    newIssueRuntimeTarget,
-    newIssueSourceContext,
-    newIssueSubmitting,
-    newIssueTargetRepo,
-    newIssueTitle,
-    openGitHubDetailPage,
-    setDialogWorkItem,
-    clearNewIssueDraft,
-    setNewIssueDraft,
-    setNewIssueTitle,
-    setTaskRefreshNonce,
-    setNewIssueSubmitting,
-    setNewIssueOpen,
-    setNewIssueBody,
-    setNewIssueLabels,
-    setNewIssueAssignees
-  ])
+          if (result.bodySaveWarning) {
+            toast.warning(createdIssueToast, {
+              ...createdIssueToastOptions,
+              description: result.bodySaveWarning
+            })
+          } else {
+            toast.success(createdIssueToast, createdIssueToastOptions)
+          }
+          setNewIssueOpen(false)
+          if (result.bodySaveWarning) {
+            // Why: keep the unsaved body for recovery but clear the title so reopening can't one-click repeat the create.
+            setNewIssueTitle('')
+            setNewIssueDraft({
+              title: ''
+            })
+          } else {
+            setNewIssueTitle('')
+            setNewIssueBody('')
+            setNewIssueLabels([])
+            setNewIssueAssignees([])
+            clearNewIssueDraft()
+          }
+          setTaskRefreshNonce((current) => current + 1)
+
+          // Open immediately from an optimistic stub, then refine it with the full work-item read.
+          const stub: GitHubWorkItem = {
+            id: `issue:${String(result.number)}`,
+            repoId: newIssueTargetRepo.id,
+            type: 'issue',
+            number: result.number,
+            title,
+            state: 'open',
+            url: result.url,
+            labels: newIssueLabels,
+            assignees: newIssueAssignees,
+            updatedAt: new Date().toISOString(),
+            author: null
+          }
+          openGitHubDetailPage(stub)
+          setDialogWorkItem(stub)
+          const stubRepoId = newIssueTargetRepo.id
+          const fullIssuePromise = newIssueRuntimeTarget
+            ? callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.workItem>>>(
+                newIssueRuntimeTarget,
+                'github.workItem',
+                {
+                  repo:
+                    newIssueSourceContext?.provider === 'github'
+                      ? (newIssueSourceContext.repoId ?? newIssueTargetRepo.id)
+                      : newIssueTargetRepo.id,
+                  number: result.number,
+                  type: 'issue'
+                },
+                {
+                  timeoutMs: 30_000
+                }
+              )
+            : window.api.gh.workItem({
+                repoPath: newIssueTargetRepo.path,
+                repoId: newIssueTargetRepo.id,
+                sourceContext: newIssueSourceContext,
+                number: result.number,
+                type: 'issue'
+              })
+          void fullIssuePromise
+            .then((full) => {
+              const state = useAppStore.getState()
+              if (
+                full &&
+                state.taskPageData.openGitHubWorkItem === stub &&
+                state.githubTaskDrawerWorkItem === stub
+              ) {
+                // Why: cast through unknown — spreading the discriminated union loses the discriminant, so { ...full, repoId } won't typecheck.
+                const withRepoId = {
+                  ...full,
+                  repoId: stubRepoId
+                } as unknown as GitHubWorkItem
+                setDialogWorkItem(withRepoId)
+              }
+            })
+            .catch(() => {})
+        } finally {
+          setNewIssueSubmitting(false)
+        }
+      }, setNewIssueSubmitting),
+    [
+      newIssueDraftController,
+      newIssueAssignees,
+      newIssueLabels,
+      newIssueRuntimeTarget,
+      newIssueSourceContext,
+      newIssueSubmitting,
+      newIssueTargetRepo,
+      newIssueTitle,
+      openGitHubDetailPage,
+      setDialogWorkItem,
+      clearNewIssueDraft,
+      setNewIssueDraft,
+      setNewIssueTitle,
+      setTaskRefreshNonce,
+      setNewIssueSubmitting,
+      setNewIssueOpen,
+      setNewIssueBody,
+      setNewIssueLabels,
+      setNewIssueAssignees
+    ]
+  )
   const nextModel = model as typeof model & {
     handleCreateNewIssue: typeof handleCreateNewIssue
   }

@@ -1,3 +1,5 @@
+import { prepareGitHubImages, captureGitHubRepoImageContext } from './prepare-github-images'
+export type GitHubDraftPreparation = { signal: AbortSignal; update: (body: string) => void }
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
 import type { GhAccountBinding } from '../../../../shared/github/account-binding'
@@ -13,28 +15,45 @@ import {
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
 import type { GitHubOwnerRepo } from '../../../../shared/github/pull-request-types'
 
-export function addIssueCommentForRepo(args: {
+type GitHubCommentRepo = {
+  preparation?: GitHubDraftPreparation
   repoId?: string
   repoPath: string
   sourceContext?: TaskSourceContext | null
-  number: number
-  body: string
-  type?: 'issue' | 'pr'
   prRepo?: GitHubOwnerRepo | null
-}): Promise<Awaited<ReturnType<typeof window.api.gh.addIssueComment>>> {
-  const runtimeHost = getGitHubSourceRuntimeHost(args.sourceContext)
-  if (runtimeHost) {
+}
+
+export async function addIssueCommentForRepo(
+  args: GitHubCommentRepo & {
+    number: number
+    body: string
+    type?: 'issue' | 'pr'
+  }
+): Promise<Awaited<ReturnType<typeof window.api.gh.addIssueComment>>> {
+  const imageContext = await captureGitHubRepoImageContext(
+    args,
+    args.type === 'pr' ? 'origin' : 'issue'
+  )
+  const preparedBody = args.preparation
+    ? await prepareGitHubImages({
+        body: args.body,
+        ...args.preparation,
+        context: imageContext
+      })
+    : args.body
+  args.preparation?.signal.throwIfAborted()
+  if (imageContext.runtime.kind === 'environment') {
     return callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.addIssueComment>>>(
-      { kind: 'environment', environmentId: runtimeHost.environmentId },
+      imageContext.runtime,
       'github.addIssueComment',
       {
-        repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId),
+        repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId) ?? args.repoPath,
         number: args.number,
-        body: args.body,
+        body: preparedBody,
         ...(args.type ? { type: args.type } : {}),
         prRepo: args.prRepo ?? null
       },
-      { timeoutMs: 30_000 }
+      { ...imageContext.rpcOptions, timeoutMs: 30_000 }
     ).then((result) => {
       if (result.ok) {
         notifyWorkItemDetailsMutation(
@@ -56,40 +75,46 @@ export function addIssueCommentForRepo(args: {
     repoId: args.repoId,
     sourceContext: args.sourceContext,
     number: args.number,
-    body: args.body,
+    body: preparedBody,
     type: args.type,
     prRepo: args.prRepo ?? null
   })
 }
 
-export function addPRReviewCommentForRepo(args: {
-  repoId?: string
-  repoPath: string
-  sourceContext?: TaskSourceContext | null
-  prNumber: number
-  prRepo?: GitHubOwnerRepo | null
-  commitId: string
-  path: string
-  line: number
-  startLine?: number
-  body: string
-}): Promise<Awaited<ReturnType<typeof window.api.gh.addPRReviewComment>>> {
-  const runtimeHost = getGitHubSourceRuntimeHost(args.sourceContext)
-  if (runtimeHost) {
+export async function addPRReviewCommentForRepo(
+  args: GitHubCommentRepo & {
+    prNumber: number
+    commitId: string
+    path: string
+    line: number
+    startLine?: number
+    body: string
+  }
+): Promise<Awaited<ReturnType<typeof window.api.gh.addPRReviewComment>>> {
+  const imageContext = await captureGitHubRepoImageContext(args, 'origin')
+  const preparedBody = args.preparation
+    ? await prepareGitHubImages({
+        body: args.body,
+        ...args.preparation,
+        context: imageContext
+      })
+    : args.body
+  args.preparation?.signal.throwIfAborted()
+  if (imageContext.runtime.kind === 'environment') {
     return callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.addPRReviewComment>>>(
-      { kind: 'environment', environmentId: runtimeHost.environmentId },
+      imageContext.runtime,
       'github.addPRReviewComment',
       {
-        repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId),
+        repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId) ?? args.repoPath,
         prNumber: args.prNumber,
         prRepo: args.prRepo ?? null,
         commitId: args.commitId,
         path: args.path,
         line: args.line,
         startLine: args.startLine,
-        body: args.body
+        body: preparedBody
       },
-      { timeoutMs: 30_000 }
+      { ...imageContext.rpcOptions, timeoutMs: 30_000 }
     ).then((result) => {
       if (result.ok) {
         notifyWorkItemDetailsMutation(
@@ -116,38 +141,44 @@ export function addPRReviewCommentForRepo(args: {
     path: args.path,
     line: args.line,
     startLine: args.startLine,
-    body: args.body
+    body: preparedBody
   })
 }
 
-export function addPRReviewCommentReplyForRepo(args: {
-  repoId?: string
-  repoPath: string
-  sourceContext?: TaskSourceContext | null
-  prNumber: number
-  prRepo?: GitHubOwnerRepo | null
-  commentId: number
-  body: string
-  threadId?: string
-  path?: string
-  line?: number
-}): Promise<Awaited<ReturnType<typeof window.api.gh.addPRReviewCommentReply>>> {
-  const runtimeHost = getGitHubSourceRuntimeHost(args.sourceContext)
-  if (runtimeHost) {
+export async function addPRReviewCommentReplyForRepo(
+  args: GitHubCommentRepo & {
+    prNumber: number
+    commentId: number
+    body: string
+    threadId?: string
+    path?: string
+    line?: number
+  }
+): Promise<Awaited<ReturnType<typeof window.api.gh.addPRReviewCommentReply>>> {
+  const imageContext = await captureGitHubRepoImageContext(args, 'origin')
+  const preparedBody = args.preparation
+    ? await prepareGitHubImages({
+        body: args.body,
+        ...args.preparation,
+        context: imageContext
+      })
+    : args.body
+  args.preparation?.signal.throwIfAborted()
+  if (imageContext.runtime.kind === 'environment') {
     return callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.addPRReviewCommentReply>>>(
-      { kind: 'environment', environmentId: runtimeHost.environmentId },
+      imageContext.runtime,
       'github.addPRReviewCommentReply',
       {
-        repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId),
+        repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId) ?? args.repoPath,
         prNumber: args.prNumber,
         prRepo: args.prRepo ?? null,
         commentId: args.commentId,
-        body: args.body,
+        body: preparedBody,
         threadId: args.threadId,
         path: args.path,
         line: args.line
       },
-      { timeoutMs: 30_000 }
+      { ...imageContext.rpcOptions, timeoutMs: 30_000 }
     ).then((result) => {
       if (result.ok) {
         notifyWorkItemDetailsMutation(
@@ -171,7 +202,7 @@ export function addPRReviewCommentReplyForRepo(args: {
     prNumber: args.prNumber,
     prRepo: args.prRepo ?? null,
     commentId: args.commentId,
-    body: args.body,
+    body: preparedBody,
     threadId: args.threadId,
     path: args.path,
     line: args.line
@@ -221,7 +252,7 @@ export function setPRFileViewedForRepo(args: {
     const generation = getRuntimeEnvironmentConnectionGeneration(target.environmentId)
     const expectedGhAccount = args.expectedGhAccount
     const params = {
-      repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId),
+      repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId) ?? args.repoPath,
       prRepo: args.prRepo ?? null,
       pullRequestId: args.pullRequestId,
       path: args.path,

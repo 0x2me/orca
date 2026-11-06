@@ -1,3 +1,4 @@
+import { githubOperationTimeout } from './github-operation-budget'
 // Resolve bound credentials into child environments only; never mutate process-wide auth or log tokens.
 import { ghExecFileAsync } from '../git/runner'
 import type { GhCaptureLifetimeHooks } from '../git/command-runner/gh-capture-lifetime'
@@ -113,6 +114,9 @@ export async function resolveGhAccountToken(
   nowMs = Date.now(),
   hooks?: GhCaptureLifetimeHooks
 ): Promise<string> {
+  if (target.signal) {
+    githubOperationTimeout(target)
+  }
   const binding = normalizeGhAccountBinding(bindingInput)
   if (!binding) {
     throw createGhBoundAccountUnavailableError({ host: '?', user: '?' })
@@ -120,6 +124,9 @@ export async function resolveGhAccountToken(
 
   const normalizedTarget = normalizeGhCapabilityTarget(target)
   const capability = await getGhMultiAccountCapability(normalizedTarget, nowMs, hooks)
+  if (target.signal) {
+    githubOperationTimeout(target)
+  }
   if (capability === 'unsupported') {
     throw createGhMultiAccountUnsupportedError()
   }
@@ -146,11 +153,16 @@ export async function resolveGhAccountToken(
       {
         cwd: normalizedTarget.cwd,
         wslDistro: normalizedTarget.wslDistro,
-        timeout: TOKEN_RESOLVE_TIMEOUT_MS,
+        timeout: githubOperationTimeout(target, TOKEN_RESOLVE_TIMEOUT_MS),
+        signal: target.signal,
+        deadlineAt: target.deadlineAt,
         env: resolveEnv
       },
       hooks
     )
+    if (target.signal) {
+      githubOperationTimeout(target)
+    }
     const token = stdout.replace(/\r?\n/g, '').trim()
     if (!token) {
       // Cache stable empty-token misses to avoid hammering the keyring.
@@ -162,6 +174,9 @@ export async function resolveGhAccountToken(
     pruneTokenCache(nowMs)
     return token
   } catch (error) {
+    if (target.signal?.aborted) {
+      throw error
+    }
     if (
       error &&
       typeof error === 'object' &&

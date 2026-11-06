@@ -15,6 +15,13 @@ import {
 import { createIssue } from '../../../github/issue-create'
 import { updateIssue } from '../../../github/issue-update'
 import { getRepoRoutingConnectionId } from '../../../../shared/execution-host'
+import { uploadGitHubImage } from '../../../github/image-attachment-upload'
+import type { GitHubAttachmentTarget } from '../../../../shared/rpc-contract/github-attachment-params'
+import {
+  resolveGitHubRepoExecution,
+  resolveIssueGitHubApiRepositorySource
+} from '../../../github/github-api-repository'
+import { projectGhExecOptions } from '../../../github/project-view/internals'
 
 type LocalGitArgs = [] | [LocalProjectGhExecOptions]
 
@@ -25,6 +32,53 @@ type RuntimeGitHubIssueCommentCommandsDeps = {
 
 export class RuntimeGitHubIssueCommentCommands {
   constructor(private readonly deps: RuntimeGitHubIssueCommentCommandsDeps) {}
+
+  uploadGitHubAttachment(
+    args: {
+      target: GitHubAttachmentTarget
+      fileName: string
+      contentType: string
+    },
+    claim: () => Buffer,
+    signal?: AbortSignal
+  ): Promise<{ url: string }> {
+    return uploadGitHubImage({
+      ...args,
+      claim,
+      signal,
+      resolve: async (budget) => {
+        const target = args.target
+        if (target.kind === 'slug') {
+          return {
+            ownerRepo: target,
+            ghOptions: { ...projectGhExecOptions(target.host), ...budget }
+          }
+        }
+        const repo = await this.deps.resolveRepo(target.repo)
+        budget.signal?.throwIfAborted()
+        const options = { ...this.deps.getLocalGitArgs(repo)[0], ...budget }
+        const connectionId = getRepoRoutingConnectionId(repo)
+        return resolveGitHubRepoExecution(
+          repo.path,
+          target.ownerRepo ??
+            (target.source === 'issue'
+              ? async () =>
+                  (
+                    await resolveIssueGitHubApiRepositorySource(
+                      repo.path,
+                      repo.issueSourcePreference,
+                      connectionId,
+                      options
+                    )
+                  ).source
+              : undefined),
+          connectionId,
+          options,
+          target.expectedGhAccount
+        )
+      }
+    })
+  }
 
   async createRepoIssue(
     repoSelector: string,

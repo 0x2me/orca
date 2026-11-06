@@ -67,7 +67,7 @@ function getUpload(uploadId: string): ClipboardImageUpload {
   return upload
 }
 
-function mobileClientId(ctx: RpcContext): string | undefined {
+function mobileClientId(ctx: Pick<RpcContext, 'clientKind' | 'clientId'>): string | undefined {
   if (ctx.clientKind !== 'mobile') {
     return undefined
   }
@@ -80,13 +80,29 @@ function mobileClientId(ctx: RpcContext): string | undefined {
 
 function assertMobileUploadOwner(
   upload: ClipboardImageUpload,
-  ctx: RpcContext
+  ctx: Pick<RpcContext, 'clientKind' | 'clientId'>
 ): string | undefined {
   const clientId = mobileClientId(ctx)
   if (clientId && upload.mobileClientId !== clientId) {
     throw new Error('Clipboard image upload was not found')
   }
   return clientId
+}
+
+export function claimClipboardImageUpload(
+  uploadId: string,
+  ctx: Pick<RpcContext, 'clientKind' | 'clientId'>
+): Buffer {
+  const upload = getUpload(uploadId)
+  assertMobileUploadOwner(upload, ctx)
+  if (upload.connectionId) {
+    throw new Error('This image upload belongs to a remote file operation.')
+  }
+  if (upload.receivedBase64Length !== upload.expectedBase64Length) {
+    throw new Error('Clipboard image upload is incomplete')
+  }
+  deleteUpload(uploadId)
+  return decodeClipboardImageUpload(upload.chunks)
 }
 
 export const CLIPBOARD_METHODS = [

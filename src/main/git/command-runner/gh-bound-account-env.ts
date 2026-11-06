@@ -52,7 +52,12 @@ export async function resolveBoundGhExecEnv(
       throw createGhBoundAccountHostMismatchError(normalized, host)
     }
   }
-  const target = { cwd: options.cwd, wslDistro: resolved.wsl?.distro ?? options.wslDistro }
+  const target = {
+    cwd: options.cwd,
+    wslDistro: resolved.wsl?.distro ?? options.wslDistro,
+    signal: options.signal,
+    deadlineAt: options.deadlineAt
+  }
   const token = hooks
     ? await resolveGhAccountToken(normalized, target, undefined, hooks)
     : await resolveGhAccountToken(normalized, target)

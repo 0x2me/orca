@@ -1,3 +1,4 @@
+import { gitHubBodyImageError } from '../../../shared/github/markdown-image-destinations'
 import { assertPositiveInt, projectGhExecOptions, runRest, validateSlugArgs } from './internals'
 import type { GitHubProjectMutationResult } from '../../../shared/github/project-result-types'
 import type { UpdatePullRequestBySlugArgs } from '../../../shared/github/project-request-types'
@@ -5,6 +6,13 @@ import type { UpdatePullRequestBySlugArgs } from '../../../shared/github/project
 export async function updatePullRequestBySlug(
   args: UpdatePullRequestBySlugArgs
 ): Promise<GitHubProjectMutationResult> {
+  const imageError = gitHubBodyImageError(args.updates?.body)
+  if (imageError) {
+    return {
+      ok: false,
+      error: { type: 'validation_error', message: imageError }
+    }
+  }
   const slug = validateSlugArgs(args.owner, args.repo)
   if (!slug.ok) {
     return slug

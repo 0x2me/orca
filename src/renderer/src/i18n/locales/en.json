@@ -3826,7 +3826,9 @@
         "IssueSourceIndicator": {
           "issueFromRepo": "Issue from <repo/>",
           "issuesFromRepo": "Issues from <repo/>"
-        }
+        },
+        "imageReadFailed": "The image could not be read. Paste it again.",
+        "imageUploadFailed": "The image could not be uploaded. Your draft is kept; try again."
       },
       "linear": {
         "api": {

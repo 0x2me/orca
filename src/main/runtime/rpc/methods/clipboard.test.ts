@@ -1,7 +1,7 @@
 import '../unused-default-rpc-methods.test-fixture'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from '../dispatcher'
-import type { RpcRequest, RpcResponse } from '../core'
+import type { RpcContext, RpcRequest, RpcResponse } from '../core'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import {
   CLIPBOARD_IMAGE_MAX_BASE64_CHARS,
@@ -18,6 +18,7 @@ vi.mock('../../../window/clipboard-image-temp-file', () => ({
 
 import { CLIPBOARD_IMAGE_UPLOAD_CHUNK_BASE64_CHARS } from '../../../../shared/rpc-contract/clipboard-params'
 import {
+  claimClipboardImageUpload,
   CLIPBOARD_IMAGE_UPLOAD_MAX_CONCURRENT,
   CLIPBOARD_METHODS,
   resetClipboardImageUploadsForTest
@@ -66,6 +67,67 @@ describe('clipboard RPC methods', () => {
     vi.useRealTimers()
     resetClipboardImageUploadsForTest()
     resetMobileClipboardImageProvenanceForTest()
+  })
+
+  it('claims complete image bytes once without filesystem staging and enforces the mobile owner', async () => {
+    const dispatcher = makeDispatcher()
+    const start = await callMobile(dispatcher, 'clipboard.startImageUpload', {
+      expectedBase64Length: 4
+    })
+    if (!start.ok) {
+      throw new Error('upload did not start')
+    }
+    if (
+      !start.result ||
+      typeof start.result !== 'object' ||
+      !('uploadId' in start.result) ||
+      typeof start.result.uploadId !== 'string'
+    ) {
+      throw new Error('missing upload id')
+    }
+    const { uploadId } = start.result
+    const context: Pick<RpcContext, 'clientKind' | 'clientId'> = {
+      clientKind: 'mobile',
+      clientId: 'device-a'
+    }
+    expect(() => claimClipboardImageUpload(uploadId, context)).toThrow('incomplete')
+    await callMobile(dispatcher, 'clipboard.appendImageUploadChunk', {
+      uploadId,
+      offset: 0,
+      contentBase64: 'AID/'
+    })
+    expect(() => claimClipboardImageUpload(uploadId, { ...context, clientId: 'device-b' })).toThrow(
+      'not found'
+    )
+    expect(claimClipboardImageUpload(uploadId, context)).toEqual(Buffer.from([0, 128, 255]))
+    expect(() => claimClipboardImageUpload(uploadId, context)).toThrow('not found')
+    expect(saveClipboardImageBufferAsTempFile).not.toHaveBeenCalled()
+  })
+
+  it('does not consume an SSH file-upload session as a GitHub attachment', async () => {
+    const start = await callMobile(makeDispatcher(), 'clipboard.startImageUpload', {
+      expectedBase64Length: 4,
+      connectionId: 'ssh-a'
+    })
+    if (!start.ok) {
+      throw new Error('upload did not start')
+    }
+    if (
+      !start.result ||
+      typeof start.result !== 'object' ||
+      !('uploadId' in start.result) ||
+      typeof start.result.uploadId !== 'string'
+    ) {
+      throw new Error('missing upload id')
+    }
+    const { uploadId } = start.result
+    expect(() =>
+      claimClipboardImageUpload(uploadId, {
+        clientKind: 'mobile',
+        clientId: 'device-a'
+      })
+    ).toThrow('remote file operation')
+    expect(saveClipboardImageBufferAsTempFile).not.toHaveBeenCalled()
   })
 
   it('saves browser-provided clipboard image bytes on the runtime host', async () => {

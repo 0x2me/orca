@@ -1,3 +1,4 @@
+import { useGitHubDraft } from '@/components/github/use-github-draft'
 import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { formatCreateError } from '../../hosted-review/creation/create-pull-request-review-copy'
@@ -47,7 +48,10 @@ type ChecksPanelCreateReviewInput = ChecksPanelCreatedReviewInput &
     | 'setIsCreatingPr'
     | 'updatePullRequestGenerationRecord'
   > &
-  Pick<ChecksPanelComposerState, 'prBase' | 'prBody' | 'prDraft' | 'prGenerating' | 'prTitle'> &
+  Pick<
+    ChecksPanelComposerState,
+    'prBase' | 'prBody' | 'setPrBody' | 'prDraft' | 'prGenerating' | 'prTitle'
+  > &
   Pick<ChecksPanelComposerState, 'handleGeneratePullRequestFields' | 'prAiGenerationEnabled'> &
   Pick<
     ChecksPanelComposerState,
@@ -90,181 +94,193 @@ export function useChecksPanelCreateReview(model: ChecksPanelCreateReviewInput) 
     setIsCreatingPr,
     updatePullRequestGenerationRecord
   } = model
+  const attachmentDraft = useGitHubDraft(prBody, model.setPrBody, panelContextKey)
   const handlePullRequestCreated = useChecksPanelCreatedReview(model)
 
   const createPullRequest = useCallback(
-    async (stacked = false, generated?: PullRequestGenerationFields): Promise<void> => {
-      const requestContextKey = panelContextKey
-      // A late click-owned run still links its original branch, but may update only a panel still showing it.
-      const panelShowsRequest = panelContextKeyRef.current === requestContextKey
-      if (
-        !repo ||
-        !branch ||
-        !createComposerOpen ||
-        prGenerating ||
-        (panelShowsRequest && createPrInFlightRef.current)
-      ) {
-        return
-      }
-      const isCurrentCreateRequest = (): boolean =>
-        panelContextKeyRef.current === requestContextKey &&
-        createPrInFlightRef.current === requestContextKey
-      const showCreateError = (message: string): void => {
-        if (isCurrentCreateRequest()) {
-          setCreatePrError(message)
-        }
-      }
-      const fields = generated ?? { base: prBase, title: prTitle, body: prBody, draft: prDraft }
-      const base = stripBaseRef(fields.base).trim()
-      const title = fields.title.trim()
-      const worktreePath = activeWorktreePath ?? repo.path
-      const invalidFieldsError = !title
-        ? translate(
-            'auto.components.right.sidebar.SourceControl.f3a8b2c1d0e5',
-            'Enter a {{value0}} title.',
-            {
-              value0: hostedReviewCreateCopy.reviewLabel
-            }
-          )
-        : !base || stripBaseRef(base).toLowerCase() === stripBaseRef(branch).toLowerCase()
-          ? translate(
-              'auto.components.right.sidebar.SourceControl.ae743199cd',
-              'Choose a different base branch before creating a {{value0}}.',
-              { value0: hostedReviewCreateCopy.reviewLabel }
-            )
-          : null
-      if (invalidFieldsError) {
-        if (panelShowsRequest) {
-          setCreatePrError(invalidFieldsError)
-        }
-        return
-      }
-
-      if (panelShowsRequest) {
-        createPrInFlightRef.current = requestContextKey
-        setIsCreatingPr(true)
-        setCreatePrError(null)
-      }
-      let pushed = false
-      try {
-        const shouldPushBeforeCreate =
-          createPrPushFirst || hostedReviewCreation?.blockedReason === 'needs_push'
-        if (shouldPushBeforeCreate) {
-          const ok = await pushBeforeCreatePullRequest()
-          if (!ok) {
-            showCreateError(
-              translate(
-                'sourceControl.createReviewFailure.pushFailed',
-                'Push failed. Resolve the push error, then try again.'
-              )
-            )
+    async (stacked = false, generated?: PullRequestGenerationFields): Promise<void> =>
+      attachmentDraft.submit(
+        async (_body, signal) => {
+          const requestContextKey = panelContextKey
+          // A late click-owned run still links its original branch, but may update only a panel still showing it.
+          const panelShowsRequest = panelContextKeyRef.current === requestContextKey
+          if (
+            !repo ||
+            !branch ||
+            !createComposerOpen ||
+            prGenerating ||
+            (panelShowsRequest && createPrInFlightRef.current)
+          ) {
             return
           }
-          pushed = true
-        }
-        const createInput = {
-          repoId: repo.id,
-          provider: hostedReviewCreateProvider,
-          base,
-          head: normalizeHostedReviewHeadRef(branch),
-          title,
-          body: fields.body,
-          draft: fields.draft && hostedReviewProviderSupportsDraft(hostedReviewCreateProvider),
-          worktreePath,
-          useTemplate: prCreationDefaults.useTemplate
-        }
-        const result = stacked
-          ? await createStackedHostedReview(repo.path, createInput)
-          : await createHostedReview(repo.path, createInput)
-        // Read before linking changes the panel context key.
-        const panelShowsReview = model.mountedRef.current && isCurrentCreateRequest()
-        if (result.ok) {
-          const foreground = createdReviewIsForeground(activeWorktreeId, panelShowsReview)
-          await handlePullRequestCreated(
-            { provider: hostedReviewCreateProvider, number: result.number, url: result.url },
-            panelShowsReview
-          )
-          if (prCreationDefaults.openAfterCreate && foreground) {
-            openAppHttpLink(result.url, { worktreeId: activeWorktreeId })
+          const isCurrentCreateRequest = (): boolean =>
+            panelContextKeyRef.current === requestContextKey &&
+            createPrInFlightRef.current === requestContextKey
+          const showCreateError = (message: string): void => {
+            if (isCurrentCreateRequest()) {
+              setCreatePrError(message)
+            }
           }
-          if (activePullRequestGenerationKey) {
-            updatePullRequestGenerationRecord(
-              activePullRequestGenerationKey,
-              clearPullRequestGenerationRequiresPushBeforeCreate
-            )
-          }
-          return
-        }
-        if ('existingReview' in result && result.existingReview?.url) {
-          const number = result.existingReview.number
-          toast.success(
-            number
+          const fields = generated ?? { base: prBase, title: prTitle, body: prBody, draft: prDraft }
+          const base = stripBaseRef(fields.base).trim()
+          const title = fields.title.trim()
+          const worktreePath = activeWorktreePath ?? repo.path
+          const invalidFieldsError = !title
+            ? translate(
+                'auto.components.right.sidebar.SourceControl.f3a8b2c1d0e5',
+                'Enter a {{value0}} title.',
+                {
+                  value0: hostedReviewCreateCopy.reviewLabel
+                }
+              )
+            : !base || stripBaseRef(base).toLowerCase() === stripBaseRef(branch).toLowerCase()
               ? translate(
-                  'auto.components.right.sidebar.ChecksPanel.b6ce28da5b',
-                  '{{value0}} #{{value1}} is already open',
-                  { value0: hostedReviewCreateCopy.titleLabel, value1: number }
+                  'auto.components.right.sidebar.SourceControl.ae743199cd',
+                  'Choose a different base branch before creating a {{value0}}.',
+                  { value0: hostedReviewCreateCopy.reviewLabel }
                 )
-              : translate(
-                  'auto.components.right.sidebar.ChecksPanel.cf9e69f3be',
-                  '{{value0}} is already open',
-                  { value0: hostedReviewCreateCopy.titleLabel }
-                ),
-            {
-              action: {
-                label: translate(
-                  'auto.components.right.sidebar.ChecksPanel.192e686e57',
-                  'Open on {{value0}}',
-                  { value0: hostedReviewCreateCopy.providerName }
-                ),
-                onClick: () =>
-                  openAppHttpLink(result.existingReview!.url, { worktreeId: activeWorktreeId })
+              : null
+          if (invalidFieldsError) {
+            if (panelShowsRequest) {
+              setCreatePrError(invalidFieldsError)
+            }
+            return
+          }
+
+          if (panelShowsRequest) {
+            createPrInFlightRef.current = requestContextKey
+            setIsCreatingPr(true)
+            setCreatePrError(null)
+          }
+          let pushed = false
+          try {
+            const shouldPushBeforeCreate =
+              createPrPushFirst || hostedReviewCreation?.blockedReason === 'needs_push'
+            if (shouldPushBeforeCreate) {
+              const ok = await pushBeforeCreatePullRequest()
+              if (!ok) {
+                showCreateError(
+                  translate(
+                    'sourceControl.createReviewFailure.pushFailed',
+                    'Push failed. Resolve the push error, then try again.'
+                  )
+                )
+                return
+              }
+              pushed = true
+            }
+            const createInput = {
+              repoId: repo.id,
+              provider: hostedReviewCreateProvider,
+              base,
+              head: normalizeHostedReviewHeadRef(branch),
+              title,
+              body: fields.body,
+              draft: fields.draft && hostedReviewProviderSupportsDraft(hostedReviewCreateProvider),
+              worktreePath,
+              useTemplate: prCreationDefaults.useTemplate
+            }
+            const result = stacked
+              ? await createStackedHostedReview(repo.path, createInput, {
+                  signal,
+                  update: attachmentDraft.change
+                })
+              : await createHostedReview(repo.path, createInput, {
+                  signal,
+                  update: attachmentDraft.change
+                })
+            // Read before linking changes the panel context key.
+            const panelShowsReview = model.mountedRef.current && isCurrentCreateRequest()
+            if (result.ok) {
+              const foreground = createdReviewIsForeground(activeWorktreeId, panelShowsReview)
+              await handlePullRequestCreated(
+                { provider: hostedReviewCreateProvider, number: result.number, url: result.url },
+                panelShowsReview
+              )
+              if (prCreationDefaults.openAfterCreate && foreground) {
+                openAppHttpLink(result.url, { worktreeId: activeWorktreeId })
+              }
+              if (activePullRequestGenerationKey) {
+                updatePullRequestGenerationRecord(
+                  activePullRequestGenerationKey,
+                  clearPullRequestGenerationRequiresPushBeforeCreate
+                )
+              }
+              return
+            }
+            if ('existingReview' in result && result.existingReview?.url) {
+              const number = result.existingReview.number
+              toast.success(
+                number
+                  ? translate(
+                      'auto.components.right.sidebar.ChecksPanel.b6ce28da5b',
+                      '{{value0}} #{{value1}} is already open',
+                      { value0: hostedReviewCreateCopy.titleLabel, value1: number }
+                    )
+                  : translate(
+                      'auto.components.right.sidebar.ChecksPanel.cf9e69f3be',
+                      '{{value0}} is already open',
+                      { value0: hostedReviewCreateCopy.titleLabel }
+                    ),
+                {
+                  action: {
+                    label: translate(
+                      'auto.components.right.sidebar.ChecksPanel.192e686e57',
+                      'Open on {{value0}}',
+                      { value0: hostedReviewCreateCopy.providerName }
+                    ),
+                    onClick: () =>
+                      openAppHttpLink(result.existingReview!.url, { worktreeId: activeWorktreeId })
+                  }
+                }
+              )
+              if (number) {
+                await handlePullRequestCreated(
+                  { provider: hostedReviewCreateProvider, number, url: result.existingReview.url },
+                  panelShowsReview
+                )
+                if (activePullRequestGenerationKey) {
+                  updatePullRequestGenerationRecord(
+                    activePullRequestGenerationKey,
+                    clearPullRequestGenerationRequiresPushBeforeCreate
+                  )
+                }
+                return
               }
             }
-          )
-          if (number) {
-            await handlePullRequestCreated(
-              { provider: hostedReviewCreateProvider, number, url: result.existingReview.url },
-              panelShowsReview
-            )
-            if (activePullRequestGenerationKey) {
-              updatePullRequestGenerationRecord(
-                activePullRequestGenerationKey,
-                clearPullRequestGenerationRequiresPushBeforeCreate
-              )
+            // Stack registration can fail after PR creation; link the existing PR before reporting the stack error.
+            if ('createdReview' in result && result.createdReview?.url) {
+              const { number, url } = result.createdReview
+              if (number) {
+                await handlePullRequestCreated(
+                  { provider: hostedReviewCreateProvider, number, url },
+                  panelShowsReview
+                )
+              }
             }
-            return
-          }
-        }
-        // Stack registration can fail after PR creation; link the existing PR before reporting the stack error.
-        if ('createdReview' in result && result.createdReview?.url) {
-          const { number, url } = result.createdReview
-          if (number) {
-            await handlePullRequestCreated(
-              { provider: hostedReviewCreateProvider, number, url },
-              panelShowsReview
+            showCreateError(formatCreateError(result, pushed, hostedReviewCreateProvider))
+          } catch (error) {
+            showCreateError(
+              error instanceof Error
+                ? error.message
+                : translate(
+                    'auto.components.right.sidebar.SourceControl.e2b7a1c0d9f4',
+                    'Failed to create {{value0}}',
+                    { value0: hostedReviewCreateCopy.reviewLabel }
+                  )
             )
+          } finally {
+            if (createPrInFlightRef.current === requestContextKey) {
+              createPrInFlightRef.current = null
+              setIsCreatingPr(false)
+              setGitStatusRefreshNonce((value) => value + 1)
+            }
           }
-        }
-        showCreateError(formatCreateError(result, pushed, hostedReviewCreateProvider))
-      } catch (error) {
-        showCreateError(
-          error instanceof Error
-            ? error.message
-            : translate(
-                'auto.components.right.sidebar.SourceControl.e2b7a1c0d9f4',
-                'Failed to create {{value0}}',
-                { value0: hostedReviewCreateCopy.reviewLabel }
-              )
-        )
-      } finally {
-        if (createPrInFlightRef.current === requestContextKey) {
-          createPrInFlightRef.current = null
-          setIsCreatingPr(false)
-          setGitStatusRefreshNonce((value) => value + 1)
-        }
-      }
-    },
+        },
+        () => {}
+      ),
     [
+      attachmentDraft,
       activeWorktreePath,
       activeWorktreeId,
       activePullRequestGenerationKey,

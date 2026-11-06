@@ -59,6 +59,18 @@ describe('updateIssueBySlug', () => {
     runRestMock.mockReset().mockResolvedValue({ ok: true, data: {} })
   })
 
+  it('rejects an unresolved image before a combined slug state/title edit has any public effect', async () => {
+    const result = await updateIssueBySlug({
+      owner: 'acme',
+      repo: 'widgets',
+      number: 12,
+      updates: { body: '![screen](data:image/png;base64,AA==)', title: 'Changed', state: 'closed' }
+    })
+    expect(result).toMatchObject({ ok: false, error: { type: 'validation_error' } })
+    expect(ghExecFileAsyncMock).not.toHaveBeenCalled()
+    expect(runRestMock).not.toHaveBeenCalled()
+  })
+
   it('closes slug-addressed issues with completed and not planned reasons via gh issue close', async () => {
     await expect(
       updateIssueBySlug({

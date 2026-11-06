@@ -25,6 +25,26 @@ describe('gh-capability-state', () => {
     clearGhCapabilityStateForTests()
   })
 
+  it('cancels only one shared probe waiter and preserves the result for other callers', async () => {
+    let finish!: (value: { stdout: string; stderr: string }) => void
+    ghExecFileAsyncMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        })
+    )
+    const controller = new AbortController()
+    const cancelled = getGhMultiAccountCapability({ signal: controller.signal })
+    const other = getGhMultiAccountCapability()
+    const rejection = expect(cancelled).rejects.toMatchObject({ name: 'AbortError' })
+    controller.abort()
+    await rejection
+    finish({ stdout: 'Usage: gh auth token [--user login]', stderr: '' })
+    await expect(other).resolves.toBe('supported')
+    await expect(getGhMultiAccountCapability()).resolves.toBe('supported')
+    expect(ghExecFileAsyncMock).toHaveBeenCalledOnce()
+  })
+
   it('caches per runtime and invalidates on request', async () => {
     ghExecFileAsyncMock.mockResolvedValue({
       stdout: 'Usage: gh auth token [--user login]',

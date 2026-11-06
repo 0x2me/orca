@@ -1,3 +1,4 @@
+import { githubOperationTimeout } from './github-operation-budget'
 import { withGitHubRepoExecution } from './github-repository-identity'
 import type { GitHubApiRepository } from './github-api-repository'
 import {
@@ -59,6 +60,9 @@ export async function getGitHubApiRepositoryForRemote(
       localGitOptions,
       ...verifiedIdentityArgs
     )
+    if (localGitOptions.signal) {
+      githubOperationTimeout(localGitOptions)
+    }
     if (ownerRepo) {
       return { ...ownerRepo, host: 'github.com' }
     }
@@ -76,7 +80,7 @@ export async function getGitHubApiRepositoryForRemote(
       return cached.value
     }
     const inFlight = originRepoInFlight.get(cacheKey)
-    if (inFlight) {
+    if (inFlight && !localGitOptions.signal) {
       return inFlight
     }
     const probe = (async () => {
@@ -98,6 +102,9 @@ export async function getGitHubApiRepositoryForRemote(
               enterpriseOptions,
               ...verifiedEnterpriseArgs
             )
+      if (localGitOptions.signal) {
+        githubOperationTimeout(localGitOptions)
+      }
       // Undefined means auth inventory was unreadable; do not cache transient probe failures.
       if (slug !== undefined) {
         originRepoCache.set(cacheKey, {
@@ -108,6 +115,9 @@ export async function getGitHubApiRepositoryForRemote(
       }
       return resolveGitHubApiRepositoryProbe(slug, requireVerifiedSshProbe)
     })()
+    if (localGitOptions.signal) {
+      return probe
+    }
     originRepoInFlight.set(cacheKey, probe)
     try {
       return await probe

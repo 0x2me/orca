@@ -1,3 +1,4 @@
+import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
 import type { GitHubOwnerRepo } from '../../shared/github/pull-request-types'
 import { commandExecFileAsync } from '../git/runner'
 import { parseWslPath } from '../wsl/filesystem/unc-path-access'
@@ -20,6 +21,7 @@ const SSH_HOSTNAME_CACHE_MAX = 256
 const SSH_G_TIMEOUT_MS = 5_000
 
 export type SshConfigResolutionContext = {
+  signal?: AbortSignal
   repoPath: string
   connectionId?: string | null
   wslDistro?: string
@@ -146,6 +148,7 @@ export async function classifyGitHubOwnerRepoFromRemoteUrl(
   remoteUrl: string,
   context: SshConfigResolutionContext = { repoPath: '' }
 ): Promise<GitHubOwnerRepoResolution> {
+  context.signal?.throwIfAborted()
   const direct = parseGitHubOwnerRepo(remoteUrl)
   if (direct) {
     return { kind: 'github', ownerRepo: direct }
@@ -154,7 +157,10 @@ export async function classifyGitHubOwnerRepoFromRemoteUrl(
   if (!aliasHost) {
     return { kind: 'not-github', cacheWithGitConfigSignature: true }
   }
-  const { hostname, resolved } = await resolveSshConfigHostname(aliasHost, context)
+  const { hostname, resolved } = await waitForPromiseWithSignal(
+    resolveSshConfigHostname(aliasHost, context),
+    context.signal
+  )
   if (!resolved || !hostname) {
     return { kind: 'indeterminate' }
   }

@@ -192,6 +192,7 @@ export function TaskPageGitHubIssueDialog({
               {translate('auto.components.TaskPage.7f3f7b4c18', 'Description (optional, markdown)')}
             </label>
             <GitHubMarkdownComposer
+              draft={model.newIssueDraftController}
               value={newIssueBody}
               onChange={setNewIssueBody}
               placeholder={translate('auto.components.TaskPage.34d97ca682', "What's going on?")}

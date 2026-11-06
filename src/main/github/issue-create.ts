@@ -1,3 +1,4 @@
+import { gitHubBodyImageError } from '../../shared/github/markdown-image-destinations'
 import type {
   GitHubCreateIssueFields,
   GitHubCreateIssueResult
@@ -26,6 +27,10 @@ export async function createIssue(
   fields?: GitHubCreateIssueFields,
   localGitOptions: LocalGitExecOptions = {}
 ): Promise<GitHubCreateIssueResult> {
+  const imageError = gitHubBodyImageError(body)
+  if (imageError) {
+    return { ok: false, error: imageError }
+  }
   const trimmedTitle = title.trim()
   if (!trimmedTitle) {
     return codeHostFailure('titleRequired')
@@ -71,7 +76,12 @@ export async function createIssue(
       data = parseIssue(stdout)
     } catch (err) {
       const message = githubIssueErrorMessage(err)
-      if (!/body is too long \(maximum is \d+ characters\)/i.test(message)) {
+      const createError = extractExecError(err)
+      if (
+        !/body is too long \(maximum is \d+ characters\)/i.test(
+          `${createError.stderr}\n${createError.stdout}`
+        )
+      ) {
         return { ok: false, error: message }
       }
 

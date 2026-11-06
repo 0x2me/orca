@@ -1,3 +1,5 @@
+import type { HostedReviewCreationInput } from './hosted-review-creation-input'
+import { useGitHubDraft } from '@/components/github/use-github-draft'
 import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
@@ -7,15 +9,7 @@ import {
 } from '../../../../../../shared/source-control/hosted-review/hosted-review-refs'
 import { resolveBlockedCreateReviewNoticeMessage } from './source-control-create-review-blocked-action'
 import { localizedCreateFailure } from '../../hosted-review/provider-actions/hosted-review-create-failure-copy'
-import type { SourceControlAi } from '../ai/use-ai'
-import type { SourceControlStoreActions } from '../listing/use-store-actions'
-import type { SourceControlWorktreeContext } from '../listing/use-worktree-context'
-import type { SourceControlWorktreeOperationState } from '../panel/use-worktree-operation-state'
-import type { SourceControlCreateReviewComposer } from './use-create-review-composer'
-import type { SourceControlHostedReviewCreated } from './use-hosted-review-created'
 import type { HostedReviewCreatedContext } from './hosted-review-creation-state'
-import type { SourceControlHostedReviewState } from './use-hosted-review-state'
-import type { SourceControlPullRequestGeneration } from './use-pull-request-generation'
 import type { PullRequestGenerationFields } from '@/store/slices/pull-request-generation'
 import { useGenerateBeforeCreatePullRequest } from '../../hosted-review/creation/use-generate-before-create-pull-request'
 import { createdReviewIsForeground } from '../../hosted-review/creation/created-review-foreground'
@@ -38,6 +32,7 @@ export function useSourceControlHostedReviewCreation({
   prAiGenerationEnabled,
   prBase,
   prBody,
+  setPrBody,
   prDraft,
   prFieldRevisions,
   prFieldsAreSeedPlaceholders,
@@ -49,201 +44,193 @@ export function useSourceControlHostedReviewCreation({
   setCreatePrIntentNoticeForWorktree,
   settings,
   worktreePath
-}: {
-  activePullRequestGenerationKey: SourceControlPullRequestGeneration['activePullRequestGenerationKey']
-  activeRepo: SourceControlWorktreeContext['activeRepo']
-  activeWorktreeId: string | null
-  branchName: string
-  createHostedReview: SourceControlStoreActions['createHostedReview']
-  createPrInFlightRef: SourceControlWorktreeOperationState['createPrInFlightRef']
-  createStackedHostedReview: SourceControlStoreActions['createStackedHostedReview']
-  handleGeneratePullRequestFields: SourceControlCreateReviewComposer['handleGeneratePullRequestFields']
-  handlePullRequestCreated: SourceControlHostedReviewCreated['handlePullRequestCreated']
-  hostedReviewCreateCopy: SourceControlHostedReviewState['hostedReviewCreateCopy']
-  hostedReviewCreateProvider: SourceControlHostedReviewState['hostedReviewCreateProvider']
-  hostedReviewCreation: SourceControlHostedReviewState['hostedReviewCreation']
-  prAiGenerationEnabled: SourceControlCreateReviewComposer['prAiGenerationEnabled']
-  prBase: SourceControlCreateReviewComposer['prBase']
-  prBody: SourceControlCreateReviewComposer['prBody']
-  prDraft: SourceControlCreateReviewComposer['prDraft']
-  prFieldRevisions: SourceControlCreateReviewComposer['prFieldRevisions']
-  prFieldsAreSeedPlaceholders: SourceControlCreateReviewComposer['prFieldsAreSeedPlaceholders']
-  prGenerating: boolean
-  prTitle: SourceControlCreateReviewComposer['prTitle']
-  pullRequestFieldsInitialized: SourceControlCreateReviewComposer['pullRequestFieldsInitialized']
-  resolvedPrCreationDefaults: SourceControlAi['resolvedPrCreationDefaults']
-  setCreatePrInFlightByWorktree: SourceControlWorktreeOperationState['setCreatePrInFlightByWorktree']
-  setCreatePrIntentNoticeForWorktree: SourceControlWorktreeOperationState['setCreatePrIntentNoticeForWorktree']
-  settings: SourceControlWorktreeContext['settings']
-  worktreePath: string | null
-}) {
+}: HostedReviewCreationInput) {
+  const attachmentDraft = useGitHubDraft(
+    prBody,
+    (body) => setPrBody?.(body),
+    JSON.stringify([activeRepo?.id, activeWorktreeId, branchName, activeRepo?.ghAccount])
+  )
   const createPullRequest = useCallback(
-    async (stacked = false, generated?: PullRequestGenerationFields): Promise<void> => {
-      if (
-        !activeRepo ||
-        !activeWorktreeId ||
-        !worktreePath ||
-        !hostedReviewCreation ||
-        prGenerating
-      ) {
-        return
-      }
-
-      if (!hostedReviewCreation.canCreate) {
-        // Blocked clicks show inline prerequisite guidance.
-        const message = resolveBlockedCreateReviewNoticeMessage(hostedReviewCreation)
-        if (message) {
-          setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
-            tone: 'destructive',
-            message
-          })
-        }
-        return
-      }
-
-      const fields = generated ?? { base: prBase, title: prTitle, body: prBody, draft: prDraft }
-      const base = stripBaseRef(fields.base).trim()
-      const title = fields.title.trim()
-
-      if (!title) {
-        setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
-          tone: 'destructive',
-          message: translate(
-            'auto.components.right.sidebar.SourceControl.f3a8b2c1d0e5',
-            'Enter a {{value0}} title.',
-            { value0: hostedReviewCreateCopy.reviewLabel }
-          )
-        })
-        return
-      }
-
-      if (!base || stripBaseRef(base).toLowerCase() === stripBaseRef(branchName).toLowerCase()) {
-        setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
-          tone: 'destructive',
-          message: translate(
-            'auto.components.right.sidebar.SourceControl.ae743199cd',
-            'Choose a different base branch before creating a {{value0}}.',
-            { value0: hostedReviewCreateCopy.reviewLabel }
-          )
-        })
-        return
-      }
-
-      setCreatePrIntentNoticeForWorktree(activeWorktreeId, null)
-      const createdContext = (): HostedReviewCreatedContext => ({
-        repoPath: activeRepo.path,
-        repoId: activeRepo.id,
-        branch: branchName,
-        worktreeId: activeWorktreeId,
-        openChecks: createdReviewIsForeground(activeWorktreeId)
-      })
-      try {
-        const createInput = {
-          repoId: activeRepo.id,
-          provider: hostedReviewCreateProvider,
-          base,
-          head: normalizeHostedReviewHeadRef(branchName),
-          title,
-          body: fields.body,
-          draft: fields.draft,
-          worktreePath,
-          useTemplate: resolvedPrCreationDefaults.useTemplate
-        }
-        const result = stacked
-          ? await createStackedHostedReview(activeRepo.path, createInput)
-          : await createHostedReview(activeRepo.path, createInput)
-
-        if (result.ok) {
-          setCreatePrIntentNoticeForWorktree(activeWorktreeId, null)
-          const context = createdContext()
-          await handlePullRequestCreated(
-            {
-              provider: hostedReviewCreateProvider,
-              number: result.number,
-              url: result.url
-            },
-            context
-          )
-          if (context.openChecks && resolvedPrCreationDefaults.openAfterCreate) {
-            openAppHttpLink(result.url, { worktreeId: activeWorktreeId })
-          }
-          return
-        }
-
-        if ('existingReview' in result && result.existingReview?.url) {
-          const number = result.existingReview.number
-          toast.success(
-            number
-              ? translate(
-                  'auto.components.right.sidebar.SourceControl.eef5446523',
-                  '{{value0}} #{{value1}} is already open',
-                  { value0: hostedReviewCreateCopy.titleLabel, value1: number }
-                )
-              : translate(
-                  'auto.components.right.sidebar.SourceControl.d6fb1df5fe',
-                  '{{value0}} is already open',
-                  { value0: hostedReviewCreateCopy.titleLabel }
-                ),
-            {
-              action: {
-                label: translate(
-                  'auto.components.right.sidebar.SourceControl.812cb992ee',
-                  'Open on {{value0}}',
-                  { value0: hostedReviewCreateCopy.providerName }
-                ),
-                onClick: () =>
-                  openAppHttpLink(result.existingReview!.url, { worktreeId: activeWorktreeId })
-              }
-            }
-          )
-          if (number) {
-            setCreatePrIntentNoticeForWorktree(activeWorktreeId, null)
-            await handlePullRequestCreated(
-              {
-                provider: hostedReviewCreateProvider,
-                number,
-                url: result.existingReview.url
-              },
-              createdContext()
-            )
+    async (stacked = false, generated?: PullRequestGenerationFields): Promise<void> =>
+      attachmentDraft.submit(
+        async (_body, signal) => {
+          if (
+            !activeRepo ||
+            !activeWorktreeId ||
+            !worktreePath ||
+            !hostedReviewCreation ||
+            prGenerating
+          ) {
             return
           }
-        }
 
-        // Link the created review before reporting stack-registration failure so the workspace knows it exists.
-        if ('createdReview' in result && result.createdReview?.url) {
-          const { number, url } = result.createdReview
-          if (number) {
-            await handlePullRequestCreated(
-              {
-                provider: hostedReviewCreateProvider,
-                number,
-                url
-              },
-              createdContext()
-            )
+          if (!hostedReviewCreation.canCreate) {
+            // Blocked clicks show inline prerequisite guidance.
+            const message = resolveBlockedCreateReviewNoticeMessage(hostedReviewCreation)
+            if (message) {
+              setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
+                tone: 'destructive',
+                message
+              })
+            }
+            return
           }
-        }
 
-        setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
-          tone: 'destructive',
-          message: localizedCreateFailure(result, hostedReviewCreateProvider)
-        })
-      } catch (error) {
-        setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
-          tone: 'destructive',
-          message:
-            error instanceof Error
-              ? error.message
-              : translate(
-                  'auto.components.right.sidebar.SourceControl.e2b7a1c0d9f4',
-                  'Failed to create {{value0}}',
-                  { value0: hostedReviewCreateCopy.reviewLabel }
+          const fields = generated ?? { base: prBase, title: prTitle, body: prBody, draft: prDraft }
+          const base = stripBaseRef(fields.base).trim()
+          const title = fields.title.trim()
+
+          if (!title) {
+            setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
+              tone: 'destructive',
+              message: translate(
+                'auto.components.right.sidebar.SourceControl.f3a8b2c1d0e5',
+                'Enter a {{value0}} title.',
+                { value0: hostedReviewCreateCopy.reviewLabel }
+              )
+            })
+            return
+          }
+
+          if (
+            !base ||
+            stripBaseRef(base).toLowerCase() === stripBaseRef(branchName).toLowerCase()
+          ) {
+            setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
+              tone: 'destructive',
+              message: translate(
+                'auto.components.right.sidebar.SourceControl.ae743199cd',
+                'Choose a different base branch before creating a {{value0}}.',
+                { value0: hostedReviewCreateCopy.reviewLabel }
+              )
+            })
+            return
+          }
+
+          setCreatePrIntentNoticeForWorktree(activeWorktreeId, null)
+          const createdContext = (): HostedReviewCreatedContext => ({
+            repoPath: activeRepo.path,
+            repoId: activeRepo.id,
+            branch: branchName,
+            worktreeId: activeWorktreeId,
+            openChecks: createdReviewIsForeground(activeWorktreeId)
+          })
+          try {
+            const createInput = {
+              repoId: activeRepo.id,
+              provider: hostedReviewCreateProvider,
+              base,
+              head: normalizeHostedReviewHeadRef(branchName),
+              title,
+              body: fields.body,
+              draft: fields.draft,
+              worktreePath,
+              useTemplate: resolvedPrCreationDefaults.useTemplate
+            }
+            const result = stacked
+              ? await createStackedHostedReview(activeRepo.path, createInput, {
+                  signal,
+                  update: attachmentDraft.change
+                })
+              : await createHostedReview(activeRepo.path, createInput, {
+                  signal,
+                  update: attachmentDraft.change
+                })
+
+            if (result.ok) {
+              setCreatePrIntentNoticeForWorktree(activeWorktreeId, null)
+              const context = createdContext()
+              await handlePullRequestCreated(
+                {
+                  provider: hostedReviewCreateProvider,
+                  number: result.number,
+                  url: result.url
+                },
+                context
+              )
+              if (context.openChecks && resolvedPrCreationDefaults.openAfterCreate) {
+                openAppHttpLink(result.url, { worktreeId: activeWorktreeId })
+              }
+              return
+            }
+
+            if ('existingReview' in result && result.existingReview?.url) {
+              const number = result.existingReview.number
+              toast.success(
+                number
+                  ? translate(
+                      'auto.components.right.sidebar.SourceControl.eef5446523',
+                      '{{value0}} #{{value1}} is already open',
+                      { value0: hostedReviewCreateCopy.titleLabel, value1: number }
+                    )
+                  : translate(
+                      'auto.components.right.sidebar.SourceControl.d6fb1df5fe',
+                      '{{value0}} is already open',
+                      { value0: hostedReviewCreateCopy.titleLabel }
+                    ),
+                {
+                  action: {
+                    label: translate(
+                      'auto.components.right.sidebar.SourceControl.812cb992ee',
+                      'Open on {{value0}}',
+                      { value0: hostedReviewCreateCopy.providerName }
+                    ),
+                    onClick: () =>
+                      openAppHttpLink(result.existingReview!.url, { worktreeId: activeWorktreeId })
+                  }
+                }
+              )
+              if (number) {
+                setCreatePrIntentNoticeForWorktree(activeWorktreeId, null)
+                await handlePullRequestCreated(
+                  {
+                    provider: hostedReviewCreateProvider,
+                    number,
+                    url: result.existingReview.url
+                  },
+                  createdContext()
                 )
-        })
-      }
-    },
+                return
+              }
+            }
+
+            // Link the created review before reporting stack-registration failure so the workspace knows it exists.
+            if ('createdReview' in result && result.createdReview?.url) {
+              const { number, url } = result.createdReview
+              if (number) {
+                await handlePullRequestCreated(
+                  {
+                    provider: hostedReviewCreateProvider,
+                    number,
+                    url
+                  },
+                  createdContext()
+                )
+              }
+            }
+
+            setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
+              tone: 'destructive',
+              message: localizedCreateFailure(result, hostedReviewCreateProvider)
+            })
+          } catch (error) {
+            setCreatePrIntentNoticeForWorktree(activeWorktreeId, {
+              tone: 'destructive',
+              message:
+                error instanceof Error
+                  ? error.message
+                  : translate(
+                      'auto.components.right.sidebar.SourceControl.e2b7a1c0d9f4',
+                      'Failed to create {{value0}}',
+                      { value0: hostedReviewCreateCopy.reviewLabel }
+                    )
+            })
+          }
+        },
+        () => {}
+      ),
     [
+      attachmentDraft,
       activeRepo,
       activeWorktreeId,
       branchName,

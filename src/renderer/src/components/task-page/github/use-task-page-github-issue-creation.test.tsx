@@ -1,3 +1,4 @@
+import { GitHubDraft } from '@/components/github/use-github-draft'
 // @vitest-environment happy-dom
 import { act, useRef } from 'react'
 import '@testing-library/jest-dom/vitest'
@@ -108,6 +109,7 @@ function setup() {
       newIssueTitle: 'Created issue',
       setNewIssueTitle: setter,
       newIssueBody: 'Body',
+      newIssueDraftController: new GitHubDraft('Body', setter, 'repo-1'),
       setNewIssueBody: setter,
       newIssueLabels: [],
       setNewIssueLabels: setter,
