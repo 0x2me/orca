@@ -1,3 +1,4 @@
+import type { RuntimeRepoSelector } from '../../workspaces/catalog/runtime-repo-selector'
 import type { GitHubAttachmentCaller } from '../../../github/attachment-preparation-contexts'
 import '../../../github/rate-limit'
 import type {
@@ -29,7 +30,7 @@ export class RuntimeGitHubIssueCommentCommands {
 
   private readonly attachments: RuntimeGitHubAttachmentCommands
 
-  getGitHubAttachmentSelection(selector: string) {
+  getGitHubAttachmentSelection(selector: RuntimeRepoSelector) {
     return this.attachments.selection(selector)
   }
   retireGitHubAttachmentsForConnection(connectionId: string): void {

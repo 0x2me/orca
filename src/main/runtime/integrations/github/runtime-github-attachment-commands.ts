@@ -1,5 +1,6 @@
 import { GitHubImageValidationError } from '../../../../shared/github/image-attachment'
 import type { Repo } from '../../../../shared/repo-types'
+import type { RuntimeRepoSelector } from '../../workspaces/catalog/runtime-repo-selector'
 import type { GitHubAttachmentTarget } from '../../../../shared/rpc-contract/github-attachment-params'
 import {
   githubAttachmentRepoSelection,
@@ -30,7 +31,7 @@ import { runAsDefaultWslCliUserAct } from '../../../git/command-runner/default-w
 import type { GitHubOperationBudget } from '../../../github/github-operation-budget'
 
 export type GitHubAttachmentCommandDeps = {
-  resolveRepo: (selector: string) => Promise<Repo>
+  resolveRepo: (selector: RuntimeRepoSelector) => Promise<Repo>
   getLocalGitArgs: (repo: Repo) => [] | [LocalProjectGhExecOptions]
   resolveHostedReviewTarget: (args: {
     repoSelector: string
@@ -57,7 +58,7 @@ export class RuntimeGitHubAttachmentCommands {
   retireConnection = (connectionId: string): void =>
     this.preparations.retireConnection(connectionId)
 
-  async selection(selector: string): Promise<GitHubAttachmentRepoSelection> {
+  async selection(selector: RuntimeRepoSelector): Promise<GitHubAttachmentRepoSelection> {
     const repo = await this.deps.resolveRepo(selector)
     return githubAttachmentRepoSelection(repo, this.deps.getLocalGitArgs(repo)[0] ?? {})
   }

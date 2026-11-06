@@ -31,7 +31,7 @@ let repo: Repo
 let distro: string | undefined
 let commands: RuntimeGitHubIssueCommentCommands
 let context: RpcContext
-let target: GitHubAttachmentTarget
+let target: Extract<GitHubAttachmentTarget, { kind: 'repo' }>
 let remoteOwner: string
 const caller = () => githubAttachmentCaller(context)
 const upload = (preparationId?: string) =>
