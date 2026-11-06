@@ -258,10 +258,7 @@ export class TerminalHost {
   }
 
   setLaunchNote(sessionId: string, note: DaemonLaunchNote | null): void {
-    const session = this.sessions.get(sessionId)
-    if (session) {
-      session.launchNote = note
-    }
+    this.sessions.get(sessionId)?.setLaunchNote(note)
   }
 
   clearScrollback(sessionId: string): void {
