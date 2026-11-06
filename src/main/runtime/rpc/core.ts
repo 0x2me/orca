@@ -30,10 +30,15 @@ import type {
   RegisterDeviceKeyParams,
   RegisterDeviceKeyResult
 } from '../../../shared/remote-runtime/pairing/device-key-registration-contract'
+import type {
+  ExchangePairingTicketParams,
+  ExchangePairingTicketResult
+} from '../../../shared/remote-runtime/pairing/ticket-exchange-contract'
 
 // Bind key rotation to the authenticated socket so callers can re-key only themselves.
 export type DeviceSelfRpcContext = {
   registerDeviceKey(params: RegisterDeviceKeyParams): RegisterDeviceKeyResult
+  exchangePairingTicket(params: ExchangePairingTicketParams): ExchangePairingTicketResult
 }
 
 export type PairingRpcContext = {

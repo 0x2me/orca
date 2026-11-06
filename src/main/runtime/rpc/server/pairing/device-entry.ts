@@ -37,6 +37,10 @@ export type DeviceEntry = {
   ephemeral?: true
   // A never-seen offer stops authenticating here; absent (older rows, headless offers) never expires.
   offerExpiresAt?: number
+  // Minted as a pairing offer by a host that can exchange it; clients that never exchange keep using it.
+  ticket?: true
+  // Client-chosen replacement; first sign-in with it retires the pairing token (see pairing-ticket-exchange.ts).
+  exchangeToken?: string
 }
 
 export type TokenDeviceEntry = DeviceEntry & { token: string }
@@ -95,7 +99,10 @@ export function isStillAuthenticated(
 ): boolean {
   return (
     (device.credentialRevision ?? 0) === principal.credentialRevision &&
-    (principal.deviceToken === undefined || device.token === principal.deviceToken) &&
+    (principal.deviceToken === undefined ||
+      device.token === principal.deviceToken ||
+      // Signed in with the replacement while retiring the pairing token failed to persist.
+      device.exchangeToken === principal.deviceToken) &&
     // A keyed socket cannot survive replacement by a bearer row.
     (principal.deviceToken !== undefined || device.credentialKind === 'device-key')
   )
@@ -129,7 +136,11 @@ export function findTokenDevice(
   seen: ReadonlySet<string> = new Set(),
   now = Date.now()
 ): DeviceEntry | null {
-  const device = token && devices.find((d) => d.credentialKind === undefined && d.token === token)
+  const device =
+    token &&
+    devices.find(
+      (d) => d.credentialKind === undefined && (d.token === token || d.exchangeToken === token)
+    )
   if (!device || (isExpiredPairingOffer(device, now) && !seen.has(device.deviceId))) {
     return null
   }
