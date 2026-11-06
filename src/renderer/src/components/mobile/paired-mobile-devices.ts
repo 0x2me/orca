@@ -5,6 +5,8 @@ export type PairedMobileDevice = {
   name: string
   pairedAt: number
   lastSeenAt: number
+  // Paired by an app from before single-use pairing codes.
+  olderPairingMethod?: true
 }
 
 type PairedMobileDevicesSnapshot = {

@@ -18,6 +18,7 @@ import {
   encodeMobilePairingQr,
   type MobilePairingQrResult
 } from '../runtime/rpc/server/pairing/mobile-pairing-qr'
+import { usesOlderPairingMethod } from '../runtime/rpc/server/pairing/pairing-ticket-exchange'
 import {
   MOBILE_PAIRING_OFFER_TTL_MS,
   RUNTIME_PAIRING_OFFER_TTL_MS
@@ -39,12 +40,16 @@ function servesThisComputerOnly(reach: RuntimePairingReach | undefined, address:
   return hostname !== null && classifyRemotePairingHostname(hostname) === 'loopback'
 }
 
-function toRuntimeAccessGrant(device: DeviceEntry): RuntimeAccessGrant {
+function toRuntimeAccessGrant(
+  device: DeviceEntry,
+  devices: readonly DeviceEntry[]
+): RuntimeAccessGrant {
   return {
     deviceId: device.deviceId,
     name: device.name,
     createdAt: device.pairedAt,
-    lastSeenAt: device.lastSeenAt > 0 ? device.lastSeenAt : null
+    lastSeenAt: device.lastSeenAt > 0 ? device.lastSeenAt : null,
+    ...(usesOlderPairingMethod(device, devices) ? { olderPairingMethod: true as const } : {})
   }
 }
 
@@ -203,16 +208,17 @@ export function registerMobileHandlers(
     if (!registry) {
       return { devices: [] }
     }
+    const all = registry.listDevices()
     // Never-scanned QR tokens are not paired devices.
     return {
-      devices: registry
-        .listDevices()
+      devices: all
         .filter((d) => d.scope === 'mobile' && d.lastSeenAt > 0)
         .map((d) => ({
           deviceId: d.deviceId,
           name: d.name,
           pairedAt: d.pairedAt,
-          lastSeenAt: d.lastSeenAt
+          lastSeenAt: d.lastSeenAt,
+          ...(usesOlderPairingMethod(d, all) ? { olderPairingMethod: true as const } : {})
         }))
     }
   })
@@ -223,12 +229,12 @@ export function registerMobileHandlers(
       return { grants: [] }
     }
     // Runtime links are bearer credentials immediately, so unconnected grants must remain revocable.
+    const all = registry.listDevices()
     return {
-      grants: registry
-        .listDevices()
+      grants: all
         .filter((d) => d.scope === 'runtime')
         .sort((a, b) => b.pairedAt - a.pairedAt)
-        .map(toRuntimeAccessGrant)
+        .map((d) => toRuntimeAccessGrant(d, all))
     }
   })
 

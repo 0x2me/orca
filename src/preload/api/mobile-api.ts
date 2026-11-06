@@ -75,6 +75,7 @@ export type MobileApi = {
       name: string
       pairedAt: number
       lastSeenAt: number
+      olderPairingMethod?: true
     }[]
   }>
   revokeDevice: (args: { deviceId: string }) => Promise<{ revoked: boolean }>

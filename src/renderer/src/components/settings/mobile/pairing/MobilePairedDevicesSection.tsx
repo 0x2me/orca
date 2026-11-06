@@ -43,6 +43,14 @@ export function MobilePairedDevicesSection({
                   {translate('auto.components.settings.MobilePane.254a6d09e4', 'Paired')}
                   {new Date(device.pairedAt).toLocaleDateString(getIntlLocale())}
                 </div>
+                {device.olderPairingMethod ? (
+                  <div className="text-muted-foreground text-xs">
+                    {translate(
+                      'auto.components.settings.MobilePane.olderPairingMethod',
+                      'Uses an older pairing method. Update the Orca app on this phone.'
+                    )}
+                  </div>
+                ) : null}
               </div>
               <Button
                 variant="ghost"
